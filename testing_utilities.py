@@ -222,7 +222,8 @@ def configure_dlkit():
                 'displayName': 'Assessment Provider Implementation',
                 'description': 'Implementation for assessment service provider',
                 'values': [
-                    {'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
+                    {'value': 'TEST_FILESYSTEM_1', 'priority': 1}
+                    #{'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
                 ]
             },
             'loggingProviderImpl': {
@@ -230,7 +231,8 @@ def configure_dlkit():
                 'displayName': 'Logging Provider Implementation',
                 'description': 'Implementation for logging service provider',
                 'values': [
-                    {'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
+                    {'value': 'TEST_FILESYSTEM_1', 'priority': 1}
+                    #{'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
                 ]
             },
             'repositoryProviderImpl': {
@@ -238,7 +240,8 @@ def configure_dlkit():
                 'displayName': 'Repository Provider Implementation',
                 'description': 'Implementation for repository service provider',
                 'values': [
-                    {'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
+                    {'value': 'GSTUDIO_1', 'priority': 1}
+                    #{'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
                 ]
             },
             'learningProviderImpl': {

@@ -106,6 +106,11 @@ class AssetsList(utilities.BaseClass):
             params = self.data()
             try:
                 input_file = x['inputFile'].file
+            except AttributeError:
+                form = repository.get_asset_form_for_create([])
+                form = utilities.set_form_basics(form, params)
+                asset = repository.create_asset(form)
+            else:
                 # first, let's search the database to see if an asset exists with
                 # the file name -- file name will be everything minus the
                 # extension and language indicator.
@@ -118,25 +123,23 @@ class AssetsList(utilities.BaseClass):
                 # If that already exists, add the input_file as an asset content.
                 # If that asset does not exist, create it.
                 file_name = x['inputFile'].filename
-
                 if 'createNew' in params.keys() and params['createNew']:
                     asset = rutils.create_asset(repository, file_name)
                 else:
-                    querier = repository.get_asset_query()
-                    querier.match_display_name(rutils.get_singular_filename(file_name), match=True)
-                    assets = repository.get_assets_by_query(querier)
-                    if assets.available() > 0:
-                        asset = assets.next()
-                    else:
+                    try:
+                        querier = repository.get_asset_query()
+                        querier.match_display_name(rutils.get_singular_filename(file_name), match=True)
+                        assets = repository.get_assets_by_query(querier)
+                        if assets.available() > 0:
+                            asset = assets.next()
+                        else:
+                            asset = rutils.create_asset(repository, file_name)
+                    except Unimplemented:
                         asset = rutils.create_asset(repository, file_name)
 
                 # now let's create an asset content for this asset, with the
                 # right genus type and file data
                 rutils.append_asset_contents(repository, asset, file_name, input_file)
-            except AttributeError:
-                form = repository.get_asset_form_for_create([])
-                form = utilities.set_form_basics(form, params)
-                asset = repository.create_asset(form)
 
             if 'license' in params.keys() or 'copyright' in params.keys():
                 form = repository.get_asset_form_for_update(asset.ident)

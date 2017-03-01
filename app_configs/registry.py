@@ -1,3 +1,10 @@
+import sys
+
+# to get the right dlkit_gstudio and gnowsys-ndf imports
+gnowsys_path = '/home/docker/code/gstudio/gnowsys-ndf'
+if gnowsys_path not in sys.path:
+    sys.path.append(gnowsys_path)
+
 
 MANAGER_PATHS = {
 
@@ -19,6 +26,12 @@ MANAGER_PATHS = {
         'GRADING': ('dlkit.services.grading.GradingManager',
                     'dlkit.services.grading.GradingManager')
     },
+    'gstudio': {
+	    'AUTHORIZATION': ('dlkit_gstudio.authorization.managers.AuthorizationManager',
+                          'dlkit_gstudio.authorization.managers.AuthorizationProxyManager'),
+        'REPOSITORY': ('dlkit_gstudio.repository.managers.RepositoryManager',
+                       'dlkit_gstudio.repository.managers.RepositoryProxyManager')
+	},  
     'authz_adapter': {
         'ASSESSMENT': ('dlkit.authz_adapter.assessment.managers.AssessmentManager',
                        'dlkit.authz_adapter.assessment.managers.AssessmentProxyManager'),
