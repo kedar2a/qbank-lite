@@ -903,7 +903,6 @@ class AssetCRUDTests(BaseRepositoryTestCase):
         asset_content = self._repo.get_asset_content(Id(data['assetContents'][0]['id']))
         self.assertEqual(
             asset_content.get_url(),
-
             data['assetContents'][0]['url']
         )
 
@@ -955,11 +954,9 @@ class AssetCRUDTests(BaseRepositoryTestCase):
             data['assetContents'][0]['genusTypeId'],
             'asset-content-genus-type%3Amp4%40ODL.MIT.EDU'
         )
-
         asset_content = self._repo.get_asset_content(Id(data['assetContents'][0]['id']))
         self.assertEqual(
             asset_content.get_url(),
-
             data['assetContents'][0]['url']
         )
 
@@ -976,7 +973,6 @@ class AssetCRUDTests(BaseRepositoryTestCase):
         asset_content = self._repo.get_asset_content(Id(data['assetContents'][1]['id']))
         self.assertEqual(
             asset_content.get_url(),
-
             data['assetContents'][1]['url']
         )
 
