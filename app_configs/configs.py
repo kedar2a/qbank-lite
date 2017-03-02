@@ -59,14 +59,24 @@ FILESYSTEM_ADAPTER_1 = {
                 {'value': DATA_STORE_PATH, 'priority': 1}  # Mac
             ]
         },
-        #'secondaryDataStorePath': {
-        #    'syntax': 'STRING',
-        #    'displayName': 'Path to local filesystem datastore',
-        #    'description': 'Filesystem path for setting the MongoClient host.',
-        #    'values': [
-        #        {'value': STUDENT_RESPONSE_DATA_STORE_PATH, 'priority': 1}  # Mac
-        #    ]
-        #},
+
+        'secondaryDataStorePath': {
+            'syntax': 'STRING',
+            'displayName': 'Path to local filesystem datastore',
+            'description': 'Filesystem path for setting the MongoClient host.',
+            'values': [
+                {'value': STUDENT_RESPONSE_DATA_STORE_PATH, 'priority': 1}  # Mac
+            ]
+        },
+        'urlHostname': {
+            'syntax': 'STRING',
+            'displayName': 'Hostname config for serving files over the network',
+            'description': 'Hostname config for serving files.',
+            'values': [
+                {'value': 'https://qbank-clix-dev.mit.edu/api/v1', 'priority': 1}  # Mac
+            ]
+        },
+
     }
 }
 
@@ -122,6 +132,14 @@ FILESYSTEM_1 = {
             'description': 'To handle magic IDs.',
             'values': [
                 {'value': 'records.assessment.clix.magic_item_lookup_sessions.CLIxMagicItemLookupSession', 'priority': 1}
+            ]
+        },
+        'useCachingForQualifierIds': {
+            'syntax': 'BOOLEAN',
+            'displayName': 'Flag to use memcached for authz qualifier_ids or not',
+            'description': 'Flag to use memcached for authz qualifier_ids or not',
+            'values': [
+                {'value': True, 'priority': 1}
             ]
         },
     },
@@ -378,6 +396,14 @@ TEST_FILESYSTEM_ADAPTER_1 = {
             'description': 'Filesystem path for setting the MongoClient host.',
             'values': [
                 {'value': TEST_STUDENT_RESPONSE_DATA_STORE_PATH, 'priority': 1}  # Mac
+            ]
+        },
+        'urlHostname': {
+            'syntax': 'STRING',
+            'displayName': 'Hostname config for serving files over the network',
+            'description': 'Hostname config for serving files.',
+            'values': [
+                {'value': '/api/v1', 'priority': 1}  # Mac
             ]
         },
     }

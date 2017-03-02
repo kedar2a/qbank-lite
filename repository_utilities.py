@@ -30,14 +30,7 @@ MULTI_LANGUAGE_ASSET_CONTENT = Type(**registry.ASSET_CONTENT_RECORD_TYPES['multi
 
 
 def append_asset_contents(repo, asset, file_name, file_data, basics=None):
-    asset_content_type_list = [MULTI_LANGUAGE_ASSET_CONTENT]
-    try:
-        config = repo._osid_object._runtime.get_configuration()
-        parameter_id = Id('parameter:assetContentRecordTypeForFiles@filesystem')
-        asset_content_type_list.append(
-            config.get_value_by_parameter(parameter_id).get_type_value())
-    except (AttributeError, KeyError, NotFound):
-        pass
+    asset_content_type_list = get_asset_content_records(repo)
 
     acfc = repo.get_asset_content_form_for_create(asset.ident,
                                                   asset_content_type_list)
@@ -86,6 +79,18 @@ def get_asset_content_by_id(asset, asset_content_id):
         if str(asset_content_id) == str(asset_content.ident):
             return asset_content
     return None
+
+
+def get_asset_content_records(repo):
+    asset_content_type_list = [MULTI_LANGUAGE_ASSET_CONTENT]
+    try:
+        config = repo._osid_object._runtime.get_configuration()
+        parameter_id = Id('parameter:assetContentRecordTypeForFiles@filesystem')
+        asset_content_type_list.append(
+            config.get_value_by_parameter(parameter_id).get_type_value())
+    except (AttributeError, KeyError, NotFound):
+        pass
+    return asset_content_type_list
 
 
 def get_asset_content_genus_type(file_name):
@@ -162,15 +167,16 @@ def match_asset_content_by_name(asset_content_list, name):
     return None
 
 
-def update_asset_map_with_content_url(asset_map):
+def update_asset_map_with_content_url(rm, asset_map):
+    # because we've appended the asset content lookup methods to asset lookup session
+    acls = rm.get_asset_lookup_session()
+    acls.use_federated_repository_view()
     if 'assetContents' in asset_map:
         for index, asset_content in enumerate(asset_map['assetContents']):
-            asset_map['assetContents'][index]['url'] = '/api/v1/repository/repositories/{0}/assets/{1}/contents/{2}/stream'.format(asset_map['assignedRepositoryIds'][0],
-                                                                                                                                   asset_map['id'],
-                                                                                                                                   asset_content['id'])
+            ac = acls.get_asset_content(utilities.clean_id(asset_content['id']))
+            asset_map['assetContents'][index]['url'] = ac.get_url()
     else:
         # for an assetContent
-        asset_map['url'] = '/api/v1/repository/repositories/{0}/assets/{1}/contents/{2}/stream'.format(asset_map['assignedRepositoryIds'][0],
-                                                                                                       asset_map['assetId'],
-                                                                                                       asset_map['id'])
+        ac = acls.get_asset_content(utilities.clean_id(asset_map['id']))
+        asset_map['url'] = ac.get_url()
     return asset_map
