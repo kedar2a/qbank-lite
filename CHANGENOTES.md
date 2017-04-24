@@ -1,3 +1,47 @@
+## [3.14.2] - 2017-04-20:
+### Changed
+  - `isCorrect: None` appears in offered results for
+    every question, by default, when they have not
+    been responded to.
+
+## [3.14.1] - 2017-04-19:
+### Fixed
+  - Also check WSGI environment variables for development.
+
+## [3.14.0] - 2017-04-19:
+### Changed
+  - Provide exception tracebacks on dev environments.
+
+## [3.13.1] - 2017-04-18:
+### Fixed
+  - Test fixtures updated for MongoDB and filesystem.
+
+## [3.13.0] - 2017-04-18:
+### Added
+  - `provider` field for `asset` forms. Maps to citation.
+
+## [3.12.0] - 2017-04-18:
+### Added
+  - `source` field for `asset` forms.
+
+## [3.11.6] - 2017-04-14:
+### Changed
+  - Render the transcript as sibling to the parent `<p>`
+    tag so there is valid HTML on the UI-side.
+
+## [3.11.5] - 2017-04-13:
+### Fixed
+  - JSONify `altText` and `mediaDescription` on `PUT`, too.
+
+## [3.11.4] - 2017-04-13:
+### Fixed
+  - JSONify `altText` and `mediaDescription` when they
+    are sent as JSON strings in forms.
+
+## [3.11.3] - 2017-04-12:
+### Changed
+  - Updated dlkit to include cataloging support.
+
 ## [3.11.2] - 2017-04-11:
 ### Changed
   - For VTT asset contents, return the wrapper url instead of
@@ -231,6 +275,16 @@
   - Add endpoints for creating asset contents.
   - Improve unicode / hindi support
 
+[3.14.2]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.1...v3.14.2
+[3.14.1]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.0...v3.14.1
+[3.14.0]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.13.1...v3.14.0
+[3.13.1]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.13.0...v3.13.1
+[3.13.0]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.12.0...v3.13.0
+[3.12.0]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.6...v3.12.0
+[3.11.6]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.5...v3.11.6
+[3.11.5]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.4...v3.11.5
+[3.11.4]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.3...v3.11.4
+[3.11.3]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.2...v3.11.3
 [3.11.2]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.1...v3.11.2
 [3.11.1]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.11.0...v3.11.1
 [3.11.0]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.10.0...v3.11.0

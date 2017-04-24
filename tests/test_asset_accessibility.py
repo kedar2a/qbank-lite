@@ -702,8 +702,112 @@ class AssetAccessibilityCRUDTests(BaseAccessibilityTestCase):
             str(MEDIA_DESCRIPTION_ASSET_CONTENT_GENUS_TYPE)
         )
 
+    def test_can_create_asset_with_multi_language_media_description_in_form(self):
+        self._image_upload_test_file.seek(0)
+        req = self.app.post(self.url,
+                            params={"mediaDescription": json.dumps(self._hindi_text)},
+                            upload_files=[('inputFile', 'green_dot.png', self._image_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+        self.assertEqual(len(data['assetContents']), 2)
+        self.assertEqual(
+            len(data['assetContents'][1]['mediaDescriptions']),
+            1
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescriptions'][0]['text'],
+            self._hindi_text['text']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescription']['text'],
+            self._hindi_text['text']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescription']['languageTypeId'],
+            self._hindi_text['languageTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescription']['scriptTypeId'],
+            self._hindi_text['scriptTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['genusTypeId'],
+            str(MEDIA_DESCRIPTION_ASSET_CONTENT_GENUS_TYPE)
+        )
+
+    def test_can_create_asset_with_multi_language_alt_text_in_form(self):
+        self._image_upload_test_file.seek(0)
+        req = self.app.post(self.url,
+                            params={"altText": json.dumps(self._hindi_text)},
+                            upload_files=[('inputFile', 'green_dot.png', self._image_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+        self.assertEqual(len(data['assetContents']), 2)
+        self.assertEqual(
+            len(data['assetContents'][1]['altTexts']),
+            1
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altTexts'][0]['text'],
+            self._hindi_text['text']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altText']['text'],
+            self._hindi_text['text']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altText']['languageTypeId'],
+            self._hindi_text['languageTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altText']['scriptTypeId'],
+            self._hindi_text['scriptTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['genusTypeId'],
+            str(ALT_TEXT_ASSET_CONTENT_GENUS_TYPE)
+        )
+
     def test_can_update_alt_text_with_new_language(self):
         data = self.upload_image_with_hindi_alt_text()
+
+        self.assertEqual(len(data['assetContents']), 2)
+        self.assertEqual(len(data['assetContents'][1]['altTexts']), 2)
+        self.assertEqual(data['assetContents'][1]['genusTypeId'],
+                         str(ALT_TEXT_ASSET_CONTENT_GENUS_TYPE))
+        self.assertEqual(
+            data['assetContents'][1]['altTexts'][1]['text'],
+            self._hindi_text['text']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altTexts'][1]['languageTypeId'],
+            self._hindi_text['languageTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altTexts'][1]['scriptTypeId'],
+            self._hindi_text['scriptTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['altText']['text'],
+            'a green dot!'
+        )
+
+    def test_can_update_alt_text_with_new_language_in_form(self):
+        self._image_upload_test_file.seek(0)
+        alt_text = "a green dot!"
+        req = self.app.post(self.url,
+                            params={"altText": alt_text},
+                            upload_files=[('inputFile', 'green_dot.png', self._image_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+
+        req = self.app.put(url,
+                           params={'altText': json.dumps(self._hindi_text)})
+        self.ok(req)
+        data = self.json(req)
 
         self.assertEqual(len(data['assetContents']), 2)
         self.assertEqual(len(data['assetContents'][1]['altTexts']), 2)
@@ -786,6 +890,44 @@ class AssetAccessibilityCRUDTests(BaseAccessibilityTestCase):
         req = self.app.put(url,
                            params=json.dumps(payload),
                            headers={'content-type': 'application/json'})
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data['assetContents']), 2)
+        self.assertEqual(len(data['assetContents'][1]['mediaDescriptions']), 2)
+        self.assertEqual(data['assetContents'][1]['genusTypeId'],
+                         str(MEDIA_DESCRIPTION_ASSET_CONTENT_GENUS_TYPE))
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescriptions'][1]['text'],
+            self._hindi_text['text']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescription']['text'],
+            media_description
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescriptions'][1]['languageTypeId'],
+            self._hindi_text['languageTypeId']
+        )
+        self.assertEqual(
+            data['assetContents'][1]['mediaDescriptions'][1]['scriptTypeId'],
+            self._hindi_text['scriptTypeId']
+        )
+
+    def test_can_update_media_description_with_new_language_in_form(self):
+        self._image_upload_test_file.seek(0)
+        media_description = "a bright green dot"
+        req = self.app.post(self.url,
+                            params={"mediaDescription": media_description},
+                            upload_files=[('inputFile', 'green_dot.png', self._image_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+
+        req = self.app.put(url,
+                           params={'mediaDescription': json.dumps(self._hindi_text)})
         self.ok(req)
         data = self.json(req)
 
@@ -1575,6 +1717,25 @@ class AssetAccessibilityCRUDTests(BaseAccessibilityTestCase):
         self.assertIn(u'వీడియో ట్రాన్స్క్రిప్ట్', choice_text_with_audio)
         self.assertIn(u'ఈ పరీక్ష ట్రాన్స్క్రిప్ట్ ఉంది.', choice_text_with_audio)
 
+    def test_audio_transcript_not_nested_in_p_tag(self):
+        data = self.upload_audio_with_transcripts()
+        item = self.create_mc_item_with_audio_and_transcript(data)
+
+        url = '/api/v1/assessment/banks/{0}/items/{1}'.format(str(self._repo.ident),
+                                                              item['id'])
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+        choice_text_with_audio = data['question']['multiLanguageChoices'][0]['texts'][0]['text']
+        soup = BeautifulSoup(choice_text_with_audio, 'xml')
+        self.assertIsNone(soup.simpleChoice.p.div)
+        div_text = str(soup.simpleChoice.div)
+        self.assertIn('transcript_txt', div_text)
+        self.assertIn('transcriptWrapper', div_text)
+        self.assertIn('transcript', div_text)
+        self.assertIn('Transcript', div_text)
+        self.assertIn('This is a test transcript.', div_text)
+
     def test_video_transcript_shows_up_in_requested_language(self):
         data = self.upload_video_with_caption_and_transcripts()
         item = self.create_mc_item_with_video_and_transcript(data)
@@ -1615,6 +1776,26 @@ class AssetAccessibilityCRUDTests(BaseAccessibilityTestCase):
         self.assertIn(u'వీడియో ట్రాన్స్క్రిప్ట్', choice_text_with_video)
         self.assertIn(u'వీడియో ట్రాన్స్క్రిప్ట్', choice_text_with_video)
         self.assertIn(u'ఈ పరీక్ష ట్రాన్స్క్రిప్ట్ ఉంది.', choice_text_with_video)
+
+    def test_video_transcript_shows_up_not_nested_in_p_tag(self):
+        data = self.upload_video_with_caption_and_transcripts()
+        item = self.create_mc_item_with_video_and_transcript(data)
+
+        url = '/api/v1/assessment/banks/{0}/items/{1}'.format(str(self._repo.ident),
+                                                              item['id'])
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        choice_text_with_video = data['question']['multiLanguageChoices'][0]['texts'][0]['text']
+        soup = BeautifulSoup(choice_text_with_video, 'xml')
+        self.assertIsNone(soup.simpleChoice.p.div)
+        div_text = str(soup.simpleChoice.div)
+        self.assertIn('transcript_txt', div_text)
+        self.assertIn('transcriptWrapper', div_text)
+        self.assertIn('transcript', div_text)
+        self.assertIn('Transcript', div_text)
+        self.assertIn('This is a test transcript.', div_text)
 
     def test_can_get_video_question_even_if_transcript_src_blank(self):
         self._video_upload_test_file.seek(0)

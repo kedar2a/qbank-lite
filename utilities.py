@@ -37,6 +37,7 @@ class BaseClass:
     def data():
         # merge web.data() (url params) and web.input() (form)
         form_data = web.input()
+
         url_data = {}
         try:
             url_data = json.loads(web.data())
@@ -45,6 +46,7 @@ class BaseClass:
         if isinstance(url_data, dict):
             # because might pass in list data, like a list of offereds
             url_data.update(form_data)
+
         return url_data
 
 
@@ -228,6 +230,19 @@ def clean_id(_id):
         return Id(_id)
 
 
+def clean_json(data):
+    """return the json object version of the data, assuming it's a JSON string
+    Return the original data if an exception is throw
+    TypeError is thrown if non-string passed in
+    ValueError is thrown if a non-JSON string passed in
+    """
+    try:
+        return json.loads(data)
+    except (TypeError, ValueError):
+        pass
+    return data
+
+
 def construct_qti_id(qti_id, namespace='assessment.Item'):
     return Id(identifier=qti_id,
               namespace=namespace,
@@ -293,19 +308,25 @@ def extract_items(item_list):
 
 
 def handle_exceptions(ex):
+    message = str(ex)
     if 'WEBENV' in os.environ and os.environ['WEBENV'] == 'test':
         pass
+    elif (('WEBENV' in os.environ and os.environ['WEBENV'] == 'development') or
+          ('WEBENV' in web.ctx.env and web.ctx.env['WEBENV'] == 'development')):
+        message = traceback.format_exc(10)
+        print message  # to get this in the server logs
     else:
         print traceback.format_exc(10)
     if isinstance(ex, PermissionDenied):
         web.message = 'Permission Denied'
         raise web.Forbidden()
     elif isinstance(ex, IllegalState):
-        web.message = 'IllegalState {}'.format(str(ex))
+        # Sometimes we try to explain why illegal state, like
+        # the assessment still has items, can't delete it.
+        web.message = 'IllegalState {0}'.format(message)
         raise web.NotAcceptable()
     else:
-        web.message = 'Bad request {}'.format(ex)
-        raise web.NotFound()
+        raise web.InternalError(message)
 
 
 def set_form_basics(form, data):

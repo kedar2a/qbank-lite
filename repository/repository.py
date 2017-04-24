@@ -8,7 +8,8 @@ from bson.errors import InvalidId
 from dlkit_runtime.errors import *
 from dlkit_runtime.primitives import DataInputStream, Type
 
-import repository_utilities as rutils
+from . import repository_utilities as rutils
+from resource import resource_utilities as resource_utils
 import utilities
 
 
@@ -39,7 +40,7 @@ class RepositoriesList(utilities.BaseClass):
             repositories = rm.repositories
             repositories = utilities.extract_items(repositories)
             return repositories
-        except (PermissionDenied, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 
@@ -58,7 +59,7 @@ class RepositoryDetails(utilities.BaseClass):
             repository = rm.get_repository(utilities.clean_id(repository_id))
             repository = utilities.convert_dl_object(repository)
             return repository
-        except (PermissionDenied, NotFound, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 
@@ -88,6 +89,12 @@ class AssetsList(utilities.BaseClass):
                 assets = repository.get_assets()
             data = utilities.extract_items(assets)
 
+            # Update the source field with the displayName.text of the actual resource
+            data = json.loads(data)
+            for asset_map in data:
+                resource_utils.update_asset_map_with_resource(asset_map)
+            data = json.dumps(data)
+
             if 'fullUrls' in params:
                 data = json.loads(data)
                 updated_data = []
@@ -97,7 +104,7 @@ class AssetsList(utilities.BaseClass):
                 data = json.dumps(updated_data)
 
             return data
-        except (PermissionDenied, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
     @utilities.format_response
@@ -186,25 +193,36 @@ class AssetsList(utilities.BaseClass):
                                                                transcript_file,
                                                                locale)
 
-            if 'license' in params.keys() or 'copyright' in params.keys():
+            if any(term in params.keys() for term in ['license',
+                                                      'copyright',
+                                                      'source',
+                                                      'provider']):
                 form = repository.get_asset_form_for_update(asset.ident)
                 if 'license' in params.keys():
                     form.set_license(params['license'])
                 if 'copyright' in params.keys():
                     form.set_copyright(params['copyright'])
+                if 'source' in params.keys():
+                    resource_id = resource_utils.get_or_create_resource_id(repository,
+                                                                           params['source'])
+                    form.set_source(resource_id)
+                if 'provider' in params.keys():
+                    resource_id = resource_utils.get_or_create_resource_id(repository,
+                                                                           params['provider'])
+                    form.set_provider(resource_id)
                 asset = repository.update_asset(form)
 
             # Handle the alt-text for images
             if 'altText' in params.keys():
                 rutils.append_text_as_asset_content(repository,
                                                     asset,
-                                                    params['altText'],
+                                                    utilities.clean_json(params['altText']),
                                                     'Alt text',
                                                     'alt-text')
             if 'mediaDescription' in params.keys():
                 rutils.append_text_as_asset_content(repository,
                                                     asset,
-                                                    params['mediaDescription'],
+                                                    utilities.clean_json(params['mediaDescription']),
                                                     'Description',
                                                     'mediaDescription')
 
@@ -214,8 +232,11 @@ class AssetsList(utilities.BaseClass):
             if 'returnUrl' in web.input().keys():
                 asset_map = rutils.update_asset_map_with_content_url(rm, asset_map)
 
+            # Update the source field with the displayName.text of the actual resource
+            asset_map = resource_utils.update_asset_map_with_resource(asset_map)
+
             return json.dumps(asset_map)
-        except (PermissionDenied, InvalidId, TypeError) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 
@@ -299,7 +320,7 @@ class AssetContentStream(utilities.BaseClass):
                     bytes_read += bytes_to_read
                     starting_bytes += bytes_to_read
                     yield buf
-        except (PermissionDenied, NotFound, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 
@@ -316,7 +337,7 @@ class AssetContentsList(utilities.BaseClass):
                 data = json.dumps(rutils.update_asset_map_with_content_url(rm, asset.object_map)['assetContents'])
 
             return data
-        except (PermissionDenied, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
     @utilities.format_response
@@ -354,7 +375,7 @@ class AssetContentsList(utilities.BaseClass):
                 asset_content_map = rutils.update_asset_map_with_content_url(rm, asset_content_map)
 
             return json.dumps(asset_content_map)
-        except (PermissionDenied, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 
@@ -388,7 +409,7 @@ class AssetContentDetails(utilities.BaseClass):
                         break
 
             return json.dumps(data)
-        except (PermissionDenied, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
     @utilities.format_response
@@ -438,7 +459,7 @@ class AssetContentDetails(utilities.BaseClass):
 
             repository.update_asset_content(form)
             return utilities.convert_dl_object(repository.get_asset(asset.ident))
-        except (PermissionDenied, NotFound, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 
@@ -464,8 +485,12 @@ class AssetDetails(utilities.BaseClass):
                 data = rutils.update_asset_map_with_content_url(rm, data)
 
                 data = json.dumps(data)
+
+            # Update the source field with the displayName.text of the actual resource
+            data = resource_utils.update_asset_map_with_resource(data)
+
             return data
-        except (PermissionDenied, NotFound, InvalidId) as ex:
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
     @utilities.format_response
@@ -494,7 +519,7 @@ class AssetDetails(utilities.BaseClass):
                 # update form
                 rutils.add_alt_text_to_asset(repo,
                                              utilities.clean_id(asset_id),
-                                             params['altText'])
+                                             utilities.clean_json(params['altText']))
             if 'removeAltTextLanguage' in params:
                 rutils.remove_alt_text_language(repo,
                                                 utilities.clean_id(asset_id),
@@ -506,7 +531,7 @@ class AssetDetails(utilities.BaseClass):
             if 'mediaDescription' in params:
                 rutils.add_media_description_to_asset(repo,
                                                       utilities.clean_id(asset_id),
-                                                      params['mediaDescription'])
+                                                      utilities.clean_json(params['mediaDescription']))
             if 'removeMediaDescriptionLanguage' in params:
                 rutils.remove_media_description_language(repo,
                                                          utilities.clean_id(asset_id),
@@ -572,8 +597,23 @@ class AssetDetails(utilities.BaseClass):
             if 'copyright' in params.keys():
                 form.set_copyright(params['copyright'])
 
-            return utilities.convert_dl_object(repo.update_asset(form))
-        except (PermissionDenied, NotFound, InvalidId) as ex:
+            if 'source' in params.keys():
+                resource_id = resource_utils.get_or_create_resource_id(repo,
+                                                                       params['source'])
+                form.set_source(resource_id)
+
+            if 'provider' in params.keys():
+                resource_id = resource_utils.get_or_create_resource_id(repo,
+                                                                       params['provider'])
+                form.set_provider(resource_id)
+
+            data = utilities.convert_dl_object(repo.update_asset(form))
+
+            # Update the source field with the displayName.text of the actual resource
+            data = resource_utils.update_asset_map_with_resource(data)
+
+            return data
+        except Exception as ex:
             utilities.handle_exceptions(ex)
 
 app_repository = web.application(urls, locals())
