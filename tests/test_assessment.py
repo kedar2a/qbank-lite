@@ -3,16 +3,15 @@ import csv
 import json
 import os
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from copy import deepcopy
 
-from dlkit_runtime.primordium import Id, Type
-
 from paste.fixture import AppError
 
-from records.assessment.qti.basic import _stringify
-from records.registry import ITEM_GENUS_TYPES, ITEM_RECORD_TYPES,\
+from dlkit.runtime.primordium import Id, Type
+from dlkit.records.assessment.qti.basic import _stringify
+from dlkit.records.registry import ITEM_GENUS_TYPES, ITEM_RECORD_TYPES,\
     ANSWER_RECORD_TYPES, QUESTION_RECORD_TYPES, ANSWER_GENUS_TYPES,\
     ASSESSMENT_OFFERED_RECORD_TYPES, ASSESSMENT_TAKEN_RECORD_TYPES,\
     QUESTION_GENUS_TYPES, ASSESSMENT_RECORD_TYPES
@@ -3039,6 +3038,79 @@ class AssessmentOfferedTests(BaseAssessmentTestCase):
         updated_offered = self.json(req)
         self.assertEqual(offered['id'], updated_offered['id'])
         self.assertEqual(updated_offered['genusTypeId'], single_page_genus)
+
+    def test_can_set_unlock_previous_on_create(self):
+        item = self.create_item()
+
+        assessment = self.create_assessment()
+        assessment_id = unquote(assessment['id'])
+
+        assessment_detail_endpoint = '{0}/assessments/{1}'.format(self.url,
+                                                                  assessment_id)
+        assessment_offering_endpoint = assessment_detail_endpoint + '/assessmentsoffered'
+        self.link_item_to_assessment(item, assessment)
+
+        # Use POST to create an offering
+        payload = {
+            "startTime": {
+                "day": 1,
+                "month": 1,
+                "year": 2015
+            },
+            "duration": {
+                "days": 2
+            },
+            "unlockPrevious": 'foo'
+        }
+        req = self.app.post(assessment_offering_endpoint,
+                            params=json.dumps(payload),
+                            headers={'content-type': 'application/json'})
+        self.ok(req)
+        offering = json.loads(req.body)
+        self.assertEquals(offering['unlockPrevious'], 'foo')
+
+    def test_can_update_unlock_previous_on_update(self):
+        item = self.create_item()
+
+        assessment = self.create_assessment()
+        assessment_id = unquote(assessment['id'])
+
+        assessment_detail_endpoint = '{0}/assessments/{1}'.format(self.url,
+                                                                  assessment_id)
+        assessment_offering_endpoint = assessment_detail_endpoint + '/assessmentsoffered'
+        self.link_item_to_assessment(item, assessment)
+
+        # Use POST to create an offering
+        payload = {
+            "startTime": {
+                "day": 1,
+                "month": 1,
+                "year": 2015
+            },
+            "duration": {
+                "days": 2
+            }
+        }
+        req = self.app.post(assessment_offering_endpoint,
+                            params=json.dumps(payload),
+                            headers={'content-type': 'application/json'})
+        self.ok(req)
+        offering = json.loads(req.body)
+        self.assertEquals(offering['unlockPrevious'], 'always')
+
+        payload = {
+            "unlockPrevious": 'foo'
+        }
+
+        assessment_offering_details_endpoint = '{0}/{1}'.format(assessment_offering_endpoint,
+                                                                unquote(offering['id']))
+
+        req = self.app.put(assessment_offering_details_endpoint,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+        offering = json.loads(req.body)
+        self.assertEquals(offering['unlockPrevious'], payload['unlockPrevious'])
 
 
 class AssessmentTakingTests(BaseAssessmentTestCase):
@@ -6710,6 +6782,39 @@ class MultipleChoiceAndMWTests(BaseAssessmentTestCase):
         desired_choice_texts = [c['text'] for c in new_choice_order if 'delete' not in c]
         self.assertEqual(current_choice_texts, desired_choice_texts)
 
+    def test_can_reorder_with_duplicate_choice_ids_mc(self):
+        mc_item = self.create_mc_multi_select_item()
+        url = '{0}/items/{1}'.format(self.url,
+                                     mc_item['id'])
+        self.assertEqual(len(mc_item['question']['choices']), 5)
+        new_choice_order = mc_item['question']['choices'][1::]
+        new_choice_order.append(mc_item['question']['choices'][0])
+        new_choice_order.append(deepcopy(mc_item['question']['choices'][0]))
+
+        new_choice_order[3]['delete'] = True
+
+        for index, choice in enumerate(new_choice_order):
+            choice['order'] = index
+        payload = {
+            'question': {
+                'choices': new_choice_order,
+                'shuffle': False
+            }
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data['question']['choices']), 4)
+        current_choice_texts = [c['text'] for c in data['question']['choices']]
+        desired_choice_texts = [c['text'] for c in new_choice_order[0:-1] if 'delete' not in c]
+        self.assertEqual(current_choice_texts, desired_choice_texts)
+
     def test_can_reorder_and_add_and_delete_choice_mc(self):
         mc_item = self.create_mc_multi_select_item()
         url = '{0}/items/{1}'.format(self.url,
@@ -6866,6 +6971,40 @@ class MultipleChoiceAndMWTests(BaseAssessmentTestCase):
         self.assertEqual(len(data['question']['choices']), 2)
         current_choice_texts = [c['text'] for c in data['question']['choices']]
         desired_choice_texts = [c['text'] for c in new_choice_order if 'delete' not in c]
+        self.assertEqual(current_choice_texts, desired_choice_texts)
+
+    def test_can_reorder_with_duplicate_choice_ids_survey(self):
+        mc_item = self.create_mc_survey_item()
+        url = '{0}/items/{1}'.format(self.url,
+                                     mc_item['id'])
+        self.assertEqual(len(mc_item['question']['choices']), 3)
+        new_choice_order = mc_item['question']['choices'][1::]
+        new_choice_order.append(mc_item['question']['choices'][0])
+        new_choice_order.append(deepcopy(mc_item['question']['choices'][1]))
+
+        new_choice_order[1]['delete'] = True
+
+        for index, choice in enumerate(new_choice_order):
+            choice['order'] = index
+
+        payload = {
+            'question': {
+                'choices': new_choice_order,
+                'shuffle': False
+            }
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data['question']['choices']), 2)
+        current_choice_texts = [c['text'] for c in data['question']['choices']]
+        desired_choice_texts = [c['text'] for c in new_choice_order[0:-1] if 'delete' not in c]
         self.assertEqual(current_choice_texts, desired_choice_texts)
 
     def test_can_reorder_and_add_and_delete_choices_survey(self):
@@ -7027,6 +7166,40 @@ class MultipleChoiceAndMWTests(BaseAssessmentTestCase):
         desired_choice_texts = [c['text'] for c in new_choice_order if 'delete' not in c]
         self.assertEqual(current_choice_texts, desired_choice_texts)
 
+    def test_can_reorder_with_duplicate_choice_ids_mw_sentence(self):
+        mc_item = self.create_mw_sentence_item()
+        url = '{0}/items/{1}'.format(self.url,
+                                     mc_item['id'])
+        self.assertEqual(len(mc_item['question']['choices']), 7)
+        new_choice_order = mc_item['question']['choices'][1::]
+        new_choice_order.append(mc_item['question']['choices'][0])
+        new_choice_order.append(deepcopy(mc_item['question']['choices'][2]))
+
+        new_choice_order[3]['delete'] = True
+
+        for index, choice in enumerate(new_choice_order):
+            choice['order'] = index
+
+        payload = {
+            'question': {
+                'choices': new_choice_order,
+                'shuffle': False
+            }
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data['question']['choices']), 6)
+        current_choice_texts = [c['text'] for c in data['question']['choices']]
+        desired_choice_texts = [c['text'] for c in new_choice_order[0:-1] if 'delete' not in c]
+        self.assertEqual(current_choice_texts, desired_choice_texts)
+
     def test_can_reorder_and_add_and_delete_choices_mw_sentence(self):
         mc_item = self.create_mw_sentence_item()
         url = '{0}/items/{1}'.format(self.url,
@@ -7184,6 +7357,40 @@ class MultipleChoiceAndMWTests(BaseAssessmentTestCase):
         self.assertEqual(len(data['question']['choices']), 6)
         current_choice_texts = [c['text'] for c in data['question']['choices']]
         desired_choice_texts = [c['text'] for c in new_choice_order if 'delete' not in c]
+        self.assertEqual(current_choice_texts, desired_choice_texts)
+
+    def test_can_reorder_with_duplicate_choice_ids_image_sequence(self):
+        mc_item = self.create_mw_sentence_item()
+        url = '{0}/items/{1}'.format(self.url,
+                                     mc_item['id'])
+        self.assertEqual(len(mc_item['question']['choices']), 7)
+        new_choice_order = mc_item['question']['choices'][1::]
+        new_choice_order.append(mc_item['question']['choices'][0])
+        new_choice_order.append(deepcopy(mc_item['question']['choices'][5]))
+
+        new_choice_order[3]['delete'] = True
+
+        for index, choice in enumerate(new_choice_order):
+            choice['order'] = index
+
+        payload = {
+            'question': {
+                'choices': new_choice_order,
+                'shuffle': False
+            }
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data['question']['choices']), 6)
+        current_choice_texts = [c['text'] for c in data['question']['choices']]
+        desired_choice_texts = [c['text'] for c in new_choice_order[0:-1] if 'delete' not in c]
         self.assertEqual(current_choice_texts, desired_choice_texts)
 
     def test_can_reorder_and_add_and_delete_choices_image_sequence(self):
@@ -7367,6 +7574,46 @@ class MultipleChoiceAndMWTests(BaseAssessmentTestCase):
         self.assertEqual(len(data['question']['choices'][region]), 3)
         current_choice_texts = [c['text'] for c in data['question']['choices'][region]]
         desired_choice_texts = [c['text'] for c in new_choice_order if 'delete' not in c]
+        self.assertEqual(current_choice_texts, desired_choice_texts)
+
+    def test_can_reorder_with_duplicate_choice_ids_mw_fitb(self):
+        mc_item = self.create_mw_fitb_item()
+        url = '{0}/items/{1}'.format(self.url,
+                                     mc_item['id'])
+        self.assertEqual(len(mc_item['question']['choices']), 2)
+        region = mc_item['question']['choices'].keys()[0]
+        self.assertEqual(len(mc_item['question']['choices'][region]), 4)
+        new_choice_order = mc_item['question']['choices'][region][1::]
+        new_choice_order.append(mc_item['question']['choices'][region][0])
+        new_choice_order.append(deepcopy(mc_item['question']['choices'][region][1]))
+
+        new_choice_order[3]['delete'] = True
+
+        for index, choice in enumerate(new_choice_order):
+            choice['order'] = index
+
+        payload = {
+            'question': {
+                'inlineRegions': {
+                    region: {
+                        'choices': new_choice_order
+                    }
+                },
+                'shuffle': False
+            }
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data['question']['choices'][region]), 3)
+        current_choice_texts = [c['text'] for c in data['question']['choices'][region]]
+        desired_choice_texts = [c['text'] for c in new_choice_order[0:-1] if 'delete' not in c]
         self.assertEqual(current_choice_texts, desired_choice_texts)
 
     def test_can_reorder_and_add_and_delete_choices_mw_fitb(self):
@@ -8733,7 +8980,7 @@ class MultiLanguageTests(BaseAssessmentTestCase):
         self.assertEqual(data['displayNames'][1]['scriptTypeId'], self._hindi_script_type)
 
         payload = {
-            'removeName': data['displayNames'][0]
+            'removeNameLanguageType': data['displayNames'][0]['languageTypeId']
         }
         req = self.app.put(url,
                            params=json.dumps(payload),
@@ -8763,11 +9010,10 @@ class MultiLanguageTests(BaseAssessmentTestCase):
         self.assertEqual(data['descriptions'][1]['scriptTypeId'], self._hindi_script_type)
 
         payload = {
-            'removeDescription': data['descriptions'][0]
+            'removeDescriptionLanguageType': data['descriptions'][0]['languageTypeId']
         }
         req = self.app.put(url,
-                           params=json.dumps(payload),
-                           headers=self._hindi_headers())  # this header should be ignored because we're passing in the entire DisplayText
+                           params=json.dumps(payload))
         self.ok(req)
         data = self.json(req)
         self.assertEqual(len(data['descriptions']), 1)
@@ -8792,18 +9038,20 @@ class MultiLanguageTests(BaseAssessmentTestCase):
         self.assertEqual(data['displayNames'][1]['languageTypeId'], self._hindi_language_type)
         self.assertEqual(data['displayNames'][1]['scriptTypeId'], self._hindi_script_type)
 
+        new_name = 'new english name'
+
         payload = {
-            'editName': [data['displayNames'][0], self._telugu_text]
+            'editName': new_name
         }
         req = self.app.put(url,
                            params=json.dumps(payload),
-                           headers=self._telugu_headers())
+                           headers=self._english_headers())
         self.ok(req)
         data = self.json(req)
         self.assertEqual(len(data['displayNames']), 2)
-        self.assertEqual(data['displayNames'][0]['text'], self._telugu_text)
-        self.assertEqual(data['displayNames'][0]['languageTypeId'], self._telugu_language_type)
-        self.assertEqual(data['displayNames'][0]['scriptTypeId'], self._telugu_script_type)
+        self.assertEqual(data['displayNames'][0]['text'], new_name)
+        self.assertEqual(data['displayNames'][0]['languageTypeId'], self._english_language_type)
+        self.assertEqual(data['displayNames'][0]['scriptTypeId'], self._english_script_type)
         self.assertEqual(data['displayNames'][1]['text'], self._hindi_text)
         self.assertEqual(data['displayNames'][1]['languageTypeId'], self._hindi_language_type)
         self.assertEqual(data['displayNames'][1]['scriptTypeId'], self._hindi_script_type)
@@ -8825,18 +9073,20 @@ class MultiLanguageTests(BaseAssessmentTestCase):
         self.assertEqual(data['descriptions'][1]['languageTypeId'], self._hindi_language_type)
         self.assertEqual(data['descriptions'][1]['scriptTypeId'], self._hindi_script_type)
 
+        new_description = 'new english description'
+
         payload = {
-            'editDescription': [data['descriptions'][0], self._telugu_text]
+            'editDescription': new_description
         }
         req = self.app.put(url,
                            params=json.dumps(payload),
-                           headers=self._telugu_headers())  # now this header matters, because we're passing in a string only
+                           headers=self._english_headers())  # now this header matters, because we're passing in a string only
         self.ok(req)
         data = self.json(req)
         self.assertEqual(len(data['descriptions']), 2)
-        self.assertEqual(data['descriptions'][0]['text'], self._telugu_text)
-        self.assertEqual(data['descriptions'][0]['languageTypeId'], self._telugu_language_type)
-        self.assertEqual(data['descriptions'][0]['scriptTypeId'], self._telugu_script_type)
+        self.assertEqual(data['descriptions'][0]['text'], new_description)
+        self.assertEqual(data['descriptions'][0]['languageTypeId'], self._english_language_type)
+        self.assertEqual(data['descriptions'][0]['scriptTypeId'], self._english_script_type)
         self.assertEqual(data['descriptions'][1]['text'], self._hindi_text)
         self.assertEqual(data['descriptions'][1]['languageTypeId'], self._hindi_language_type)
         self.assertEqual(data['descriptions'][1]['scriptTypeId'], self._hindi_script_type)
@@ -8922,7 +9172,7 @@ class MultiLanguageTests(BaseAssessmentTestCase):
         self.assertEqual(data['displayNames'][1]['scriptTypeId'], self._hindi_script_type)
 
         payload = {
-            'removeName': data['displayNames'][0]
+            'removeNameLanguageType': data['displayNames'][0]['languageTypeId']
         }
         req = self.app.put(url,
                            params=json.dumps(payload),
@@ -9019,7 +9269,7 @@ class MultiLanguageTests(BaseAssessmentTestCase):
         self.assertEqual(data['descriptions'][1]['scriptTypeId'], self._hindi_script_type)
 
         payload = {
-            'removeDescription': data['descriptions'][0]
+            'removeDescriptionLanguageType': data['descriptions'][0]['languageTypeId']
         }
         req = self.app.put(url,
                            params=json.dumps(payload),

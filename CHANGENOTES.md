@@ -1,3 +1,62 @@
+## [3.15.3] - 2017-06-07:
+### Fixed
+  - Allow you to upload the first asset metadata file on PUT,
+    even if you didn't include it in the original POST.
+
+## [3.15.2] - 2017-06-06:
+### Fixed
+  - Off-by-one when returning byte range for streaming asset contents.
+
+## [3.15.1] - 2017-06-06:
+### Fixed
+  - Typo in adding record to assessment offered.
+
+### Changed
+  - Updated `dlkit` to `0.5.1` to keep `unlockPrevious` as
+    a simple string.
+
+## [3.15.0] - 2017-06-05:
+### Added
+  - Update `dlkit` to `0.5.0` to add `UnlockPrevious` record.
+  - RESTful support for `UnlockPrevious` record.
+
+## [3.14.10] - 2017-05-31:
+### Changed
+  - Update `dlkit` to `0.4.2` for Python 2 / 3 compatibility.
+
+## [3.14.9] - 2017-05-11:
+### Fixed
+  - Update `dlkit` to fix bug with `None` text.
+  - Account for `None` feedback text.
+  - Enforce typing for `add_asset()` method.
+
+## [3.14.8] - 2017-05-08:
+### Changed
+  - Update `spec` file with hidden `dlkit` imports
+    for `pyinstaller`.
+  - Update `pyinstaller` to `3.2.1`.
+
+## [3.14.7] - 2017-05-08:
+### Changed
+  - Update `dlkit` from `0.3.3` to `0.3.6`.
+
+## [3.14.6] - 2017-05-03:
+### Fixed
+  - Fixed traceback on development, for `IllegalState`.
+
+## [3.14.5] - 2017-05-03:
+### Fixed
+  - Changing choice order ignores duplicate `choiceId`s.
+
+## [3.14.4] - 2017-04-28:
+### Removed
+  - `webapps` directory from the repo.
+
+## [3.14.3] - 2017-04-26:
+### Changed
+  - Switched to using `dlkit` installable package from
+    `pip`, instead of git submodules.
+
 ## [3.14.2] - 2017-04-20:
 ### Changed
   - `isCorrect: None` appears in offered results for
@@ -275,6 +334,18 @@
   - Add endpoints for creating asset contents.
   - Improve unicode / hindi support
 
+[3.15.3]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.15.2...v3.15.3
+[3.15.2]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.15.1...v3.15.2
+[3.15.1]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.15.0...v3.15.1
+[3.15.0]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.10...v3.15.0
+[3.14.10]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.9...v3.14.10
+[3.14.9]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.8...v3.14.9
+[3.14.8]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.7...v3.14.8
+[3.14.7]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.6...v3.14.7
+[3.14.6]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.5...v3.14.6
+[3.14.5]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.4...v3.14.5
+[3.14.4]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.3...v3.14.4
+[3.14.3]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.2...v3.14.3
 [3.14.2]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.1...v3.14.2
 [3.14.1]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.14.0...v3.14.1
 [3.14.0]: https://github.com/CLIxIndia-Dev/qbank-lite/compare/v3.13.1...v3.14.0
