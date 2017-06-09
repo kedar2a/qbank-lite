@@ -9,17 +9,17 @@ from bson.errors import InvalidId
 
 from dlkit.abstract_osid.osid.objects import OsidObjectForm
 from dlkit.json_ import types
-from dlkit_runtime import PROXY_SESSION, RUNTIME
-from dlkit_runtime.errors import InvalidArgument, Unsupported, NotFound, NullArgument,\
+from dlkit.runtime import PROXY_SESSION, RUNTIME
+from dlkit.runtime.errors import InvalidArgument, Unsupported, NotFound, NullArgument,\
     IllegalState
-from dlkit_runtime.primitives import InitializableLocale
-from dlkit_runtime.primordium import Duration, DateTime, Id, Type,\
+from dlkit.runtime.primitives import InitializableLocale
+from dlkit.runtime.primordium import Duration, DateTime, Id, Type,\
     DataInputStream, DisplayText, RectangularSpatialUnit, BasicCoordinate
-from dlkit_runtime.proxy_example import TestRequest
+from dlkit.runtime.proxy_example import SimpleRequest
 
 from inflection import underscore
 
-from records.registry import ASSESSMENT_OFFERED_RECORD_TYPES,\
+from dlkit.records.registry import ASSESSMENT_OFFERED_RECORD_TYPES,\
     ANSWER_GENUS_TYPES, ANSWER_RECORD_TYPES, ASSET_GENUS_TYPES,\
     ITEM_RECORD_TYPES, ITEM_GENUS_TYPES, ASSET_CONTENT_GENUS_TYPES,\
     QUESTION_RECORD_TYPES
@@ -47,6 +47,7 @@ LATEX_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['latex'])
 PNG_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['png'])
 REVIEWABLE_OFFERED = Type(**ASSESSMENT_OFFERED_RECORD_TYPES['review-options'])
 N_OF_M_OFFERED = Type(**ASSESSMENT_OFFERED_RECORD_TYPES['n-of-m'])
+UNLOCK_PREVIOUS_BUTTON_OFFERED = Type(**ASSESSMENT_OFFERED_RECORD_TYPES['unlock-previous-button'])
 WRONG_ANSWER = Type(**ANSWER_GENUS_TYPES['wrong-answer'])
 RIGHT_ANSWER = Type(**ANSWER_GENUS_TYPES['right-answer'])
 
@@ -446,8 +447,8 @@ def get_answer_records(answer):
 
 def get_assessment_manager():
     condition = PROXY_SESSION.get_proxy_condition()
-    dummy_request = TestRequest(username=web.ctx.env.get('HTTP_X_API_PROXY', 'student@tiss.edu'),
-                                authenticated=True)
+    dummy_request = SimpleRequest(username=web.ctx.env.get('HTTP_X_API_PROXY', 'student@tiss.edu'),
+                                  authenticated=True)
     condition.set_http_request(dummy_request)
 
     if 'HTTP_X_API_LOCALE' in web.ctx.env:
@@ -555,7 +556,8 @@ def get_answer_records_from_item_genus(item_genus_type):
 
 
 def get_choice_ids_in_order(new_choice_list, existing_choice_list):
-    new_choice_list = [c for c in new_choice_list if not object_to_be_deleted(c)]
+    new_choice_list = [c for c in new_choice_list
+                       if not object_to_be_deleted(c) and object_to_be_ordered(c)]
     choice_order = []
     if all('order' in c for c in new_choice_list):
         # sort the new choice list by 'order' first
@@ -588,9 +590,11 @@ def get_choice_ids_in_order(new_choice_list, existing_choice_list):
                             choice_id = matching_choice_id
                             break
 
-                found_choice_ids.append(choice_id)
+                if choice_id not in found_choice_ids:
+                    found_choice_ids.append(choice_id)
 
-            choice_order.append(choice_id)
+            if choice_id not in choice_order:
+                choice_order.append(choice_id)
     return choice_order
 
 
@@ -1039,6 +1043,10 @@ def object_to_be_deleted(object_map):
     return 'delete' in object_map and object_map['delete']
 
 
+def object_to_be_ordered(object_map):
+    return 'order' in object_map and object_map['order'] is not None
+
+
 def match_submission_to_answer(answers, response):
     submission = get_response_submissions(response)
     answer_match = None
@@ -1135,13 +1143,18 @@ def set_assessment_offerings(bank, offerings, assessment_id, update=False):
 
         if update:
             offering_form = bank.get_assessment_offered_form_for_update(assessment_id)
+            if str(UNLOCK_PREVIOUS_BUTTON_OFFERED) not in offering_form._my_map['recordTypeIds']:
+                record = offering_form.get_assessment_offered_form_record(UNLOCK_PREVIOUS_BUTTON_OFFERED)
+                record._init_metadata()
+                record._init_map()
             execute = bank.update_assessment_offered
         else:
             # use our new Offered Record object, which lets us do
             # "can_review_whether_correct()" on the Taken.
             offering_form = bank.get_assessment_offered_form_for_create(assessment_id,
                                                                         [REVIEWABLE_OFFERED,
-                                                                         N_OF_M_OFFERED])
+                                                                         N_OF_M_OFFERED,
+                                                                         UNLOCK_PREVIOUS_BUTTON_OFFERED])
             execute = bank.create_assessment_offered
 
         if 'genusTypeId' in offering:
@@ -1179,6 +1192,9 @@ def set_assessment_offerings(bank, offerings, assessment_id, update=False):
 
         if 'nOfM' in offering:
             offering_form.set_n_of_m(int(offering['nOfM']))
+
+        if 'unlockPrevious' in offering:
+            offering_form.set_unlock_previous(offering['unlockPrevious'])
 
         new_offering = execute(offering_form)
         return_data.append(new_offering)
@@ -1553,10 +1569,10 @@ def update_form_with_files(form, data):
     for label, asset_data in data['fileIds'].iteritems():
         # don't let them overwrite files from other languages...
         if label not in form._my_map['fileIds']:
-            form.add_asset(asset_data['assetId'],
-                           asset_content_id=asset_data['assetContentId'],
+            form.add_asset(utilities.clean_id(asset_data['assetId']),
+                           asset_content_id=utilities.clean_id(asset_data['assetContentId']),
                            label=label,
-                           asset_content_type=asset_data['assetContentTypeId'])
+                           asset_content_type=Type(asset_data['assetContentTypeId']))
     return form
 
 

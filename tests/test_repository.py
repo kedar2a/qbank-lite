@@ -4,16 +4,14 @@ import os
 
 from bs4 import BeautifulSoup
 
-from dlkit_runtime.configs import FILESYSTEM_ASSET_CONTENT_TYPE
-from dlkit_runtime.errors import NotFound
-from dlkit_runtime.primordium import DataInputStream, Type, Id, DisplayText
+from dlkit.runtime.errors import NotFound
+from dlkit.runtime.primordium import DataInputStream, Type, Id, DisplayText
+from dlkit.records.registry import ASSESSMENT_RECORD_TYPES,\
+    ASSET_CONTENT_RECORD_TYPES, ASSET_CONTENT_GENUS_TYPES
 
 from testing_utilities import BaseTestCase, get_fixture_repository,\
     get_managers
 from urllib import unquote, quote
-
-from records.registry import ASSESSMENT_RECORD_TYPES,\
-    ASSET_CONTENT_RECORD_TYPES, ASSET_CONTENT_GENUS_TYPES
 
 import utilities
 
@@ -392,8 +390,8 @@ class AssetContentTests(BaseRepositoryTestCase):
         # self.assertIn('.png', headers['content-disposition'])
         # original_content_length = headers['content-length']
         self.assertIn('content-range', headers)
-        self.assertEqual('bytes 0-8192/152318', headers['content-range'][0])
-        self.assertEqual('bytes 147456-152318/152318', headers['content-range'][-1])
+        self.assertEqual('bytes 0-8191/152318', headers['content-range'][0])
+        self.assertEqual('bytes 147456-152317/152318', headers['content-range'][-1])
 
         # need to get rid of the /stream part of the path to just get the content details URL
         content_url = image['src'].replace('/stream', '')
@@ -420,7 +418,7 @@ class AssetContentTests(BaseRepositoryTestCase):
         # self.assertIn('.sltng', headers['content-disposition'])
         # self.assertNotEqual(original_content_length, headers['content-length'])
         self.assertIn('content-range', headers)
-        expected_range = 'bytes 0-8192/{0}'.format(str(os.path.getsize(self._logo_upload_test_file.name)))
+        expected_range = 'bytes 0-8191/{0}'.format(str(os.path.getsize(self._logo_upload_test_file.name)))
         self.assertIn(expected_range,
                       headers['content-range'])
 
@@ -473,7 +471,7 @@ class AssetContentTests(BaseRepositoryTestCase):
         # self.assertIn('.sltng', headers['content-disposition'])
         # self.assertNotEqual(original_content_length, headers['content-length'])
         self.assertIn('content-range', headers)
-        expected_range = 'bytes 0-8192/{0}'.format(str(os.path.getsize(self._logo_upload_test_file.name)))
+        expected_range = 'bytes 0-8191/{0}'.format(str(os.path.getsize(self._logo_upload_test_file.name)))
         self.assertIn(expected_range,
                       headers['content-range'])
 

@@ -6,12 +6,12 @@ from dlkit.primordium.transport.objects import DataInputStream
 from dlkit.primordium.type.primitives import Type
 from dlkit.json_ import types
 
-from dlkit_runtime import PROXY_SESSION, RUNTIME
-from dlkit_runtime.errors import NotFound
-from dlkit_runtime.primitives import InitializableLocale
-from dlkit_runtime.proxy_example import TestRequest
+from dlkit.runtime import PROXY_SESSION, RUNTIME
+from dlkit.runtime.errors import NotFound
+from dlkit.runtime.primitives import InitializableLocale
+from dlkit.runtime.proxy_example import SimpleRequest
 
-from records import registry
+from dlkit.records import registry
 
 import utilities
 
@@ -37,10 +37,10 @@ TRANSCRIPT_ASSET_CONTENT_RECORD_TYPE = Type(**registry.ASSET_CONTENT_RECORD_TYPE
 MULTI_LANGUAGE_ASSET_CONTENT = Type(**registry.ASSET_CONTENT_RECORD_TYPES['multi-language'])
 
 
-def append_file_as_asset_content(repo, asset, file_name, file_data, basics=None):
+def append_file_as_asset_content(repo, asset_id, file_name, file_data, basics=None):
     asset_content_type_list = get_asset_content_records(repo)
 
-    acfc = repo.get_asset_content_form_for_create(asset.ident,
+    acfc = repo.get_asset_content_form_for_create(asset_id,
                                                   asset_content_type_list)
     acfc.set_genus_type(get_asset_content_genus_type(file_name))
 
@@ -68,10 +68,10 @@ def append_file_as_asset_content(repo, asset, file_name, file_data, basics=None)
     acfu.set_data(data)
     repo.update_asset_content(acfu)
 
-    return repo.get_asset(asset.ident), ac
+    return repo.get_asset(asset_id), ac
 
 
-def append_text_as_asset_content(repo, asset, text, display_name, genus_type):
+def append_text_as_asset_content(repo, asset_id, text, display_name, genus_type):
     asset_content_type_list = get_asset_content_records(repo)
 
     if genus_type == 'alt-text':
@@ -81,7 +81,7 @@ def append_text_as_asset_content(repo, asset, text, display_name, genus_type):
         genus_type = MEDIA_DESCRIPTION_ASSET_CONTENT_GENUS_TYPE
         asset_content_type_list.append(MEDIA_DESCRIPTION_ASSET_CONTENT_RECORD_TYPE)
 
-    acfc = repo.get_asset_content_form_for_create(asset.ident,
+    acfc = repo.get_asset_content_form_for_create(asset_id,
                                                   asset_content_type_list)
     acfc.set_genus_type(genus_type)
 
@@ -97,14 +97,14 @@ def append_text_as_asset_content(repo, asset, text, display_name, genus_type):
 
     ac = repo.create_asset_content(acfc)
 
-    return repo.get_asset(asset.ident), ac
+    return repo.get_asset(asset_id), ac
 
 
-def append_transcript_file_as_asset_content(repo, asset, file_name, file_data, locale='en'):
+def append_transcript_file_as_asset_content(repo, asset_id, file_name, file_data, locale='en'):
     asset_content_type_list = get_asset_content_records(repo)
     asset_content_type_list.append(TRANSCRIPT_ASSET_CONTENT_RECORD_TYPE)
 
-    acfc = repo.get_asset_content_form_for_create(asset.ident,
+    acfc = repo.get_asset_content_form_for_create(asset_id,
                                                   asset_content_type_list)
     acfc.set_genus_type(TRANSCRIPT_ASSET_CONTENT_GENUS_TYPE)
 
@@ -123,11 +123,11 @@ def append_transcript_file_as_asset_content(repo, asset, file_name, file_data, l
     repo.create_asset_content(acfc)
 
 
-def append_vtt_file_as_asset_content(repo, asset, file_name, file_data, locale='en'):
+def append_vtt_file_as_asset_content(repo, asset_id, file_name, file_data, locale='en'):
     asset_content_type_list = get_asset_content_records(repo)
     asset_content_type_list.append(VTT_ASSET_CONTENT_RECORD_TYPE)
 
-    acfc = repo.get_asset_content_form_for_create(asset.ident,
+    acfc = repo.get_asset_content_form_for_create(asset_id,
                                                   asset_content_type_list)
     acfc.set_genus_type(VTT_ASSET_CONTENT_GENUS_TYPE)
 
@@ -154,6 +154,12 @@ def add_alt_text_to_asset(repo, asset_id, text):
         form = repo.get_asset_content_form_for_update(asset_content.ident)
         form.add_alt_text(utilities.create_display_text(text))
         repo.update_asset_content(form)
+    else:
+        append_text_as_asset_content(repo,
+                                     asset_id,
+                                     text,
+                                     'Alt text',
+                                     'alt-text')
 
 
 def add_media_description_to_asset(repo, asset_id, media_description):
@@ -164,6 +170,12 @@ def add_media_description_to_asset(repo, asset_id, media_description):
         form = repo.get_asset_content_form_for_update(asset_content.ident)
         form.add_media_description(utilities.create_display_text(media_description))
         repo.update_asset_content(form)
+    else:
+        append_text_as_asset_content(repo,
+                                     asset_id,
+                                     media_description,
+                                     'Description',
+                                     'mediaDescription')
 
 
 def add_transcript_file_to_asset(repo, asset_id, file_name, file_data, locale='en'):
@@ -180,6 +192,13 @@ def add_transcript_file_to_asset(repo, asset_id, file_name, file_data, locale='e
         else:
             form.add_transcript_file(data, locale)
         repo.update_asset_content(form)
+    else:
+        # create the asset content
+        append_transcript_file_as_asset_content(repo,
+                                                asset_id,
+                                                file_name,
+                                                file_data,
+                                                locale)
 
 
 def add_vtt_file_to_asset(repo, asset_id, file_name, file_data, locale='en'):
@@ -196,6 +215,12 @@ def add_vtt_file_to_asset(repo, asset_id, file_name, file_data, locale='en'):
         else:
             form.add_vtt_file(data, locale)
         repo.update_asset_content(form)
+    else:
+        append_vtt_file_as_asset_content(repo,
+                                         asset_id,
+                                         file_name,
+                                         file_data,
+                                         locale)
 
 
 def clear_alt_texts(repo, asset_id):
@@ -302,8 +327,8 @@ def get_file_extension(file_name):
 
 def get_repository_manager():
     condition = PROXY_SESSION.get_proxy_condition()
-    dummy_request = TestRequest(username=web.ctx.env.get('HTTP_X_API_PROXY', 'student@tiss.edu'),
-                                authenticated=True)
+    dummy_request = SimpleRequest(username=web.ctx.env.get('HTTP_X_API_PROXY', 'student@tiss.edu'),
+                                  authenticated=True)
     condition.set_http_request(dummy_request)
 
     if 'HTTP_X_API_LOCALE' in web.ctx.env:
@@ -420,8 +445,7 @@ def replace_asset_main_content(repo, asset_id, file_name, file_data):
 
 
 def update_asset_map_with_content_url(rm, asset_map):
-    # because we've appended the asset content lookup methods to asset lookup session
-    acls = rm.get_asset_lookup_session()
+    acls = rm.get_asset_content_lookup_session(proxy=rm._proxy)
     acls.use_federated_repository_view()
     if 'assetContents' in asset_map:
         for index, asset_content in enumerate(asset_map['assetContents']):

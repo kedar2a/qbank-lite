@@ -3,10 +3,8 @@ import os
 import web
 import json
 
-from bson.errors import InvalidId
-
-from dlkit_runtime.errors import *
-from dlkit_runtime.primitives import DataInputStream, Type
+from dlkit.runtime.errors import *
+from dlkit.runtime.primitives import DataInputStream
 
 from . import repository_utilities as rutils
 from resource import resource_utilities as resource_utils
@@ -81,7 +79,7 @@ class AssetsList(utilities.BaseClass):
             params = web.input()
 
             if 'allAssets' in params:
-                als = rm.get_asset_lookup_session()
+                als = rm.get_asset_lookup_session(proxy=rm._proxy)
                 als.use_federated_repository_view()
                 assets = als.get_assets()
             else:
@@ -167,7 +165,10 @@ class AssetsList(utilities.BaseClass):
 
                 # now let's create an asset content for this asset, with the
                 # right genus type and file data
-                rutils.append_file_as_asset_content(repository, asset, file_name, input_file)
+                rutils.append_file_as_asset_content(repository,
+                                                    asset.ident,
+                                                    file_name,
+                                                    input_file)
 
             # Check if transcripts or VTT files are included
             try:
@@ -177,7 +178,7 @@ class AssetsList(utilities.BaseClass):
             else:
                 file_name = vtt_input_file['vttFile'].filename
                 rutils.append_vtt_file_as_asset_content(repository,
-                                                        asset,
+                                                        asset.ident,
                                                         file_name,
                                                         vtt_file,
                                                         locale)
@@ -188,7 +189,7 @@ class AssetsList(utilities.BaseClass):
             else:
                 file_name = transcript_input_file['transcriptFile'].filename
                 rutils.append_transcript_file_as_asset_content(repository,
-                                                               asset,
+                                                               asset.ident,
                                                                file_name,
                                                                transcript_file,
                                                                locale)
@@ -215,13 +216,13 @@ class AssetsList(utilities.BaseClass):
             # Handle the alt-text for images
             if 'altText' in params.keys():
                 rutils.append_text_as_asset_content(repository,
-                                                    asset,
+                                                    asset.ident,
                                                     utilities.clean_json(params['altText']),
                                                     'Alt text',
                                                     'alt-text')
             if 'mediaDescription' in params.keys():
                 rutils.append_text_as_asset_content(repository,
-                                                    asset,
+                                                    asset.ident,
                                                     utilities.clean_json(params['mediaDescription']),
                                                     'Description',
                                                     'mediaDescription')
@@ -252,7 +253,7 @@ class AssetContentStream(utilities.BaseClass):
     def GET(self, repository_id, asset_id, content_id):
         try:
             rm = rutils.get_repository_manager()
-            als = rm.get_asset_lookup_session()
+            als = rm.get_asset_lookup_session(proxy=rm._proxy)
             als.use_federated_repository_view()
             asset = als.get_asset(utilities.clean_id(asset_id))
             asset_content = rutils.get_asset_content_by_id(asset, utilities.clean_id(content_id))
@@ -282,7 +283,6 @@ class AssetContentStream(utilities.BaseClass):
                 # The algorithm below for streaming partial content was based off of this
                 # post:
                 # https://benramsey.com/blog/2008/05/206-partial-content-and-range-requests/
-
                 continue_with_stream = True
                 byte_range = rutils.get_byte_ranges()
                 total_bytes_to_read = os.path.getsize(asset_content_data.name)
@@ -293,33 +293,42 @@ class AssetContentStream(utilities.BaseClass):
                     if bytes_to_throw_away > total_bytes_to_read or bytes_to_throw_away < 0:
                         web.ctx.status = '416 Requested Range Not Satisfiable'
                         continue_with_stream = False
+                        asset_content_data.close()
                         yield ''
-                    asset_content_data.read(bytes_to_throw_away)
-                    total_bytes_to_read = os.path.getsize(asset_content_data.name) - bytes_to_throw_away
-                    if byte_range[1] != '':
-                        total_bytes_to_read = int(byte_range[1]) - bytes_to_throw_away
+                    else:
+                        asset_content_data.read(bytes_to_throw_away)
+                        total_bytes_to_read = os.path.getsize(asset_content_data.name) - bytes_to_throw_away
+                        if byte_range[1] != '':
+                            total_bytes_to_read = int(byte_range[1]) - bytes_to_throw_away
 
-                bytes_read = 0
+                if continue_with_stream:
+                    bytes_read = 0
+                    num_bytes_to_read = 1024 * 8
+                    starting_bytes = bytes_to_throw_away
+                    web.ctx.status = '206 Partial Content'
 
-                num_bytes_to_read = 1024 * 8
-                starting_bytes = bytes_to_throw_away
-                web.ctx.status = '206 Partial Content'
+                    while continue_with_stream:
+                        remaining_bytes = total_bytes_to_read - bytes_read
+                        bytes_to_read = min(num_bytes_to_read, remaining_bytes)
+                        buf = asset_content_data.read(bytes_to_read)
+                        if not buf:
+                            asset_content_data.close()
+                            break
 
-                while continue_with_stream:
-                    remaining_bytes = total_bytes_to_read - bytes_read
-                    bytes_to_read = min(num_bytes_to_read, remaining_bytes)
-                    buf = asset_content_data.read(bytes_to_read)
-                    if not buf:
-                        break
+                        bytes_actually_read = len(buf)
 
-                    # web.header('Content-Length', str(bytes_to_read))
-                    web.header('Content-Range', 'bytes {0}-{1}/{2}'.format(str(starting_bytes),
-                                                                           str(starting_bytes + bytes_to_read),
-                                                                           str(content_length)))
+                        # web.header('Content-Length', total_bytes_to_read)
+                        # Introduce a -1 here because otherwise the bytes_read indicator is off
+                        #   by one to the browser. The ending value {1} has to be the last byte
+                        #   actually read. That broke video streaming in Chrome, not in FF.
+                        range_header_str = 'bytes {0}-{1}/{2}'.format(str(starting_bytes),
+                                                                      str(starting_bytes + bytes_actually_read - 1),
+                                                                      str(content_length))
+                        web.header('Content-Range', range_header_str)
 
-                    bytes_read += bytes_to_read
-                    starting_bytes += bytes_to_read
-                    yield buf
+                        bytes_read += bytes_actually_read
+                        starting_bytes += bytes_actually_read
+                        yield buf
         except Exception as ex:
             utilities.handle_exceptions(ex)
 
@@ -367,7 +376,11 @@ class AssetContentsList(utilities.BaseClass):
 
                 # now let's create an asset content for this asset, with the
                 # right genus type and file data. Also set the form basics, if passed in
-                updated_asset, asset_content = rutils.append_file_as_asset_content(repository, asset, file_name, input_file, params)
+                updated_asset, asset_content = rutils.append_file_as_asset_content(repository,
+                                                                                   asset.ident,
+                                                                                   file_name,
+                                                                                   input_file,
+                                                                                   params)
 
             # need to get the updated asset with Contents
             asset_content_map = json.loads(utilities.convert_dl_object(asset_content))
@@ -425,7 +438,7 @@ class AssetContentDetails(utilities.BaseClass):
         try:
             x = web.input(inputFile={})
             rm = rutils.get_repository_manager()
-            als = rm.get_asset_lookup_session()
+            als = rm.get_asset_lookup_session(proxy=rm._proxy)
             als.use_federated_repository_view()
             asset = als.get_asset(utilities.clean_id(asset_id))
             asset_content = rutils.get_asset_content_by_id(asset, utilities.clean_id(content_id))
@@ -475,7 +488,7 @@ class AssetDetails(utilities.BaseClass):
     def GET(self, repository_id, asset_id):
         try:
             rm = rutils.get_repository_manager()
-            als = rm.get_asset_lookup_session()
+            als = rm.get_asset_lookup_session(proxy=rm._proxy)
             als.use_federated_repository_view()
             data = utilities.convert_dl_object(als.get_asset(utilities.clean_id(asset_id)))
 
