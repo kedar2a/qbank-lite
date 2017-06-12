@@ -74,7 +74,7 @@ FILESYSTEM_ADAPTER_1 = {
             'displayName': 'Hostname config for serving files over the network',
             'description': 'Hostname config for serving files.',
             'values': [
-                {'value': 'https://qbank-clix-dev.mit.edu/api/v1', 'priority': 1}  # Mac
+                {'value': 'https://clixplatform.tiss.edu/api/v1', 'priority': 1}  # Mac
             ]
         },
     }
@@ -261,7 +261,7 @@ JSON_1 = {
             'displayName': 'Flag to use memcached for authz qualifier_ids or not',
             'description': 'Flag to use memcached for authz qualifier_ids or not',
             'values': [
-                {'value': False, 'priority': 1}
+                {'value': True, 'priority': 1}
             ]
         },
         'dataStorePath': {
@@ -285,7 +285,7 @@ JSON_1 = {
             'displayName': 'Use the filesystem instead of MongoDB',
             'description': 'Use the filesystem instead of MongoDB',
             'values': [
-                {'value': True, 'priority': 1}
+                {'value': False, 'priority': 1}
             ]
         },
     }
