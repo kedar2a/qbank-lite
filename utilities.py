@@ -6,14 +6,12 @@ import os
 
 from urllib import quote
 
-from dlkit.mongo import types
+from dlkit.json_ import types
 
-from dlkit_runtime import PROXY_SESSION, RUNTIME
-from dlkit_runtime.errors import PermissionDenied, InvalidArgument, IllegalState, NotFound,\
-    OperationFailed, Unsupported
-from dlkit_runtime.primitives import InitializableLocale
-from dlkit_runtime.primordium import Id, Type, DisplayText
-from dlkit_runtime.proxy_example import TestRequest
+from dlkit.runtime.errors import PermissionDenied, IllegalState,\
+    OperationFailed
+from dlkit.runtime.primitives import InitializableLocale
+from dlkit.runtime.primordium import Id, Type, DisplayText
 
 DEFAULT_LANGUAGE_TYPE = Type(**types.Language().get_type_data('DEFAULT'))
 DEFAULT_SCRIPT_TYPE = Type(**types.Script().get_type_data('DEFAULT'))
@@ -37,6 +35,7 @@ class BaseClass:
     def data():
         # merge web.data() (url params) and web.input() (form)
         form_data = web.input()
+
         url_data = {}
         try:
             url_data = json.loads(web.data())
@@ -45,7 +44,14 @@ class BaseClass:
         if isinstance(url_data, dict):
             # because might pass in list data, like a list of offereds
             url_data.update(form_data)
+
         return url_data
+
+
+def create_agent_id(username, authority='MIT-ODL'):
+    return Id(identifier=username,
+              namespace='osid.agent.Agent',
+              authority=authority)
 
 
 def create_display_text(text_string, language_code=None):
@@ -68,17 +74,7 @@ def create_display_text(text_string, language_code=None):
     else:
         language_code = language_code.lower()
         if language_code in ['en', 'hi', 'te']:
-            if language_code == 'en':
-                language_code = 'ENG'
-                script_code = 'LATN'
-            elif language_code == 'hi':
-                language_code = 'HIN'
-                script_code = 'DEVA'
-            else:
-                language_code = 'TEL'
-                script_code = 'TELU'
-            locale = InitializableLocale(language_type_identifier=language_code,
-                                         script_type_identifier=script_code)
+            locale = convert_two_digit_lang_code_to_locale_object(language_code)
             language_type_id = locale.language_type
             script_type_id = locale.script_type
         else:
@@ -104,7 +100,7 @@ def format_response_mit_type(func):
     """
     @functools.wraps(func)
     def wrapper(self, *args):
-        from assessment_utilities import get_assessment_manager
+        from assessment.assessment_utilities import get_assessment_manager
         results = func(self, *args)
 
         response = {
@@ -178,48 +174,6 @@ def allow_cors(func):
         return results
     return wrapper
 
-# def activate_managers(session, username='student@tiss.edu'):
-#     """
-#     Create initial managers and store them in the session
-#     """
-#     managers = [('am', 'ASSESSMENT'),
-#                 ('logm', 'LOGGING'),
-#                 ('rm', 'REPOSITORY')]
-#
-#     for manager in managers:
-#         nickname = manager[0]
-#         service_name = manager[1]
-#
-#         condition = PROXY_SESSION.get_proxy_condition()
-#         dummy_request = TestRequest(username=username, authenticated=True)
-#         condition.set_http_request(dummy_request)
-#
-#         if 'HTTP_X_API_LOCALE' in web.ctx.env:
-#             language_code = web.ctx.env['HTTP_X_API_LOCALE'].lower()
-#             if language_code in ['en', 'hi', 'te']:
-#                 if language_code == 'en':
-#                     language_code = 'ENG'
-#                     script_code = 'LATN'
-#                 elif language_code == 'hi':
-#                     language_code = 'HIN'
-#                     script_code = 'DEVA'
-#                 else:
-#                     language_code = 'TEL'
-#                     script_code = 'TELU'
-#             else:
-#                 language_code = DEFAULT_LANGUAGE_TYPE.identifier
-#                 script_code = DEFAULT_SCRIPT_TYPE.identifier
-#
-#             locale = InitializableLocale(language_type_identifier=language_code,
-#                                          script_type_identifier=script_code)
-#
-#             condition.set_locale(locale)
-#
-#         proxy = PROXY_SESSION.get_proxy(condition)
-#         session._initializer[nickname] = RUNTIME.get_service_manager(service_name,
-#                                                                      proxy=proxy)
-#     return session
-
 
 def clean_id(_id):
     """
@@ -230,6 +184,19 @@ def clean_id(_id):
         return Id(quote(_id))
     else:
         return Id(_id)
+
+
+def clean_json(data):
+    """return the json object version of the data, assuming it's a JSON string
+    Return the original data if an exception is throw
+    TypeError is thrown if non-string passed in
+    ValueError is thrown if a non-JSON string passed in
+    """
+    try:
+        return json.loads(data)
+    except (TypeError, ValueError):
+        pass
+    return data
 
 
 def construct_qti_id(qti_id, namespace='assessment.Item'):
@@ -248,6 +215,22 @@ def convert_dl_object(obj):
     except BaseException as e:
         print "ERROR:", str(e)
         return json.dumps(obj)
+
+
+def convert_two_digit_lang_code_to_locale_object(language_code):
+    if language_code in ['en', 'hi', 'te']:
+        if language_code == 'en':
+            language_code = 'ENG'
+            script_code = 'LATN'
+        elif language_code == 'hi':
+            language_code = 'HIN'
+            script_code = 'DEVA'
+        else:
+            language_code = 'TEL'
+            script_code = 'TELU'
+        return InitializableLocale(language_type_identifier=language_code,
+                                   script_type_identifier=script_code)
+    return None
 
 
 def extract_items(item_list):
@@ -282,19 +265,26 @@ def extract_items(item_list):
 
 
 def handle_exceptions(ex):
+    message = str(ex)
     if 'WEBENV' in os.environ and os.environ['WEBENV'] == 'test':
         pass
+    elif (('WEBENV' in os.environ and os.environ['WEBENV'] == 'development') or
+          ('WEBENV' in web.ctx.env and web.ctx.env['WEBENV'] == 'development')):
+        message = traceback.format_exc(10)
+        print message  # to get this in the server logs
     else:
         print traceback.format_exc(10)
     if isinstance(ex, PermissionDenied):
         web.message = 'Permission Denied'
         raise web.Forbidden()
     elif isinstance(ex, IllegalState):
-        web.message = 'IllegalState {}'.format(str(ex))
-        raise web.NotAcceptable()
+        # Sometimes we try to explain why illegal state, like
+        # the assessment still has items, can't delete it.
+        # web.message = 'IllegalState {0}'.format(message)
+        # raise web.NotAcceptable()
+        raise web.InternalError('IllegalState {0}'.format(message))
     else:
-        web.message = 'Bad request {}'.format(ex)
-        raise web.NotFound()
+        raise web.InternalError(message)
 
 
 def set_form_basics(form, data):
@@ -315,13 +305,11 @@ def set_form_basics(form, data):
             form.display_name = _grab_first_match(name_keys)
 
     if 'editName' in data:
-        old_name = create_display_text(data['editName'][0])
-        new_name = create_display_text(data['editName'][1])
-        form.edit_display_name(old_name, new_name)
+        new_name = create_display_text(data['editName'])
+        form.edit_display_name(new_name)
 
-    if 'removeName' in data:
-        old_name = create_display_text(data['removeName'])
-        form.clear_display_name(old_name)
+    if 'removeNameLanguageType' in data:
+        form.remove_display_name_by_language(Type(data['removeNameLanguageType']))
 
     if any(_desc in data for _desc in description_keys):
         try:
@@ -331,13 +319,11 @@ def set_form_basics(form, data):
             form.description = _grab_first_match(description_keys)
 
     if 'editDescription' in data:
-        old_description = create_display_text(data['editDescription'][0])
-        new_description = create_display_text(data['editDescription'][1])
-        form.edit_description(old_description, new_description)
+        new_description = create_display_text(data['editDescription'])
+        form.edit_description(new_description)
 
-    if 'removeDescription' in data:
-        old_description = create_display_text(data['removeDescription'])
-        form.clear_description(old_description)
+    if 'removeDescriptionLanguageType' in data:
+        form.remove_description_by_language(Type(data['removeDescriptionLanguageType']))
 
     if any(_genus in data for _genus in genus_keys):
         form.set_genus_type(Type(_grab_first_match(genus_keys)))

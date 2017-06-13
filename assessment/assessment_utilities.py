@@ -4,26 +4,29 @@ import re
 import web
 
 from bs4 import BeautifulSoup
+from bson import ObjectId
+from bson.errors import InvalidId
 
-from dlkit.mongo import types
-from dlkit_runtime import PROXY_SESSION, RUNTIME
-from dlkit_runtime.errors import InvalidArgument, Unsupported, NotFound, NullArgument,\
+from dlkit.abstract_osid.osid.objects import OsidObjectForm
+from dlkit.json_ import types
+from dlkit.runtime import PROXY_SESSION, RUNTIME
+from dlkit.runtime.errors import InvalidArgument, Unsupported, NotFound, NullArgument,\
     IllegalState
-from dlkit_runtime.primitives import InitializableLocale
-from dlkit_runtime.primordium import Duration, DateTime, Id, Type,\
-    DataInputStream
-from dlkit_runtime.proxy_example import TestRequest
+from dlkit.runtime.primitives import InitializableLocale
+from dlkit.runtime.primordium import Duration, DateTime, Id, Type,\
+    DataInputStream, DisplayText, RectangularSpatialUnit, BasicCoordinate
+from dlkit.runtime.proxy_example import SimpleRequest
 
 from inflection import underscore
 
-from records.registry import ASSESSMENT_OFFERED_RECORD_TYPES,\
+from dlkit.records.registry import ASSESSMENT_OFFERED_RECORD_TYPES,\
     ANSWER_GENUS_TYPES, ANSWER_RECORD_TYPES, ASSET_GENUS_TYPES,\
     ITEM_RECORD_TYPES, ITEM_GENUS_TYPES, ASSET_CONTENT_GENUS_TYPES,\
     QUESTION_RECORD_TYPES
 
 from urllib import quote
 
-import repository_utilities as rutils
+import repository.repository_utilities as rutils
 import utilities
 
 ANSWER_WITH_FEEDBACK = Type(**ANSWER_RECORD_TYPES['answer-with-feedback'])
@@ -31,6 +34,8 @@ MULTI_LANGUAGE_ANSWER_WITH_FEEDBACK = Type(**ANSWER_RECORD_TYPES['multi-language
 EDX_FILE_ASSET_GENUS_TYPE = Type(**ASSET_GENUS_TYPES['edx-file-asset'])
 EDX_IMAGE_ASSET_GENUS_TYPE = Type(**ASSET_GENUS_TYPES['edx-image-asset'])
 EDX_ITEM_RECORD_TYPE = Type(**ITEM_RECORD_TYPES['edx_item'])
+EDX_MULTI_CHOICE_ITEM_RECORD_TYPE = Type(**ITEM_RECORD_TYPES['edx_multiple_choice_item'])
+EDX_NUMERIC_RESPONSE_ITEM_RECORD_TYPE = Type(**ITEM_RECORD_TYPES['edx-numeric-response-item'])
 EDX_MULTI_CHOICE_PROBLEM_TYPE = Type(**ITEM_GENUS_TYPES['multi-choice-edx'])
 EDX_NUMERIC_RESPONSE_PROBLEM_GENUS_TYPE = Type(**ITEM_GENUS_TYPES['numeric-response-edx'])
 GENERIC_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['generic'])
@@ -42,8 +47,11 @@ LATEX_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['latex'])
 PNG_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['png'])
 REVIEWABLE_OFFERED = Type(**ASSESSMENT_OFFERED_RECORD_TYPES['review-options'])
 N_OF_M_OFFERED = Type(**ASSESSMENT_OFFERED_RECORD_TYPES['n-of-m'])
+UNLOCK_PREVIOUS_BUTTON_OFFERED = Type(**ASSESSMENT_OFFERED_RECORD_TYPES['unlock-previous-button'])
 WRONG_ANSWER = Type(**ANSWER_GENUS_TYPES['wrong-answer'])
 RIGHT_ANSWER = Type(**ANSWER_GENUS_TYPES['right-answer'])
+
+LABEL_ORTHO_FACES_ITEM_RECORD = Type(**ITEM_RECORD_TYPES['label-ortho-faces'])
 
 FILES_ANSWER_RECORD = Type(**ANSWER_RECORD_TYPES['files'])
 FILES_QUESTION_RECORD = Type(**QUESTION_RECORD_TYPES['files'])
@@ -81,6 +89,12 @@ FILE_SUBMISSION_ANSWER_RECORD = Type(**ANSWER_RECORD_TYPES['file-submission'])
 EXTENDED_TEXT_INTERACTION_ANSWER_RECORD = Type(**ANSWER_RECORD_TYPES['extended-text-answer'])
 MULTI_LANGUAGE_NUMERIC_RESPONSE_ANSWER_RECORD = Type(**ANSWER_RECORD_TYPES['multi-language-numeric-response-with-feedback'])
 MULTI_LANGUAGE_FEEDBACK_ANSWER_RECORD = Type(**ANSWER_RECORD_TYPES['multi-language-answer-with-feedback'])
+
+DRAG_AND_DROP_ANSWER_RECORD = Type(**ANSWER_RECORD_TYPES['drag-and-drop'])
+DRAG_AND_DROP_ITEM_RECORD = Type(**ITEM_RECORD_TYPES['drag-and-drop'])
+DRAG_AND_DROP_QUESTION_RECORD = Type(**QUESTION_RECORD_TYPES['multi-language-drag-and-drop'])
+DRAG_AND_DROP_ITEM_GENUS_TYPE = Type(**ITEM_GENUS_TYPES['drag-and-drop'])
+# DRAG_AND_DROP_QUESTION_GENUS_TYPE = Type(**QUESTION_GENUS_TYPES['drag-and-drop'])
 
 
 DEFAULT_LANGUAGE_TYPE = Type(**types.Language().get_type_data('DEFAULT'))
@@ -178,6 +192,23 @@ def add_files_to_form(form, files):
     return form
 
 
+def always_right(question_map):
+    return (is_file_submission(question_map) or
+            is_mw_sandbox(question_map) or
+            is_survey(question_map) or
+            is_short_answer(question_map))
+
+
+def answer_is_default_incorrect(answer):
+    answer_choice_ids = list(answer.get_choice_ids())
+    if (str(answer.genus_type) == str(WRONG_ANSWER) and
+            (len(answer_choice_ids) == 0 or
+             (len(answer_choice_ids) == 1 and
+              (answer_choice_ids[0] is None or str(answer_choice_ids[0]) == 'incorrect')))):
+        return True
+    return False
+
+
 def archive_bank_names(original_id):
     return 'Archive for {0}'.format(str(original_id))
 
@@ -261,11 +292,18 @@ def create_new_item(bank, data):
         #  * author comments
         #  * extra python script
         # any files?
-        form = bank.get_item_form_for_create([EDX_ITEM_RECORD_TYPE,
-                                              ITEM_WITH_WRONG_ANSWERS_RECORD_TYPE])
+        question_type = data['question']['type']
+        if 'multi-choice' in question_type:
+            form = bank.get_item_form_for_create([EDX_MULTI_CHOICE_ITEM_RECORD_TYPE])
+        elif 'numeric-response' in question_type:
+            form = bank.get_item_form_for_create([EDX_NUMERIC_RESPONSE_ITEM_RECORD_TYPE])
+        else:
+            form = bank.get_item_form_for_create([EDX_ITEM_RECORD_TYPE,
+                                                  ITEM_WITH_WRONG_ANSWERS_RECORD_TYPE])
+
         form.display_name = data['name']
         form.description = data['description']
-        question_type = data['question']['type']
+
         if 'multi-choice' in question_type:
             form.set_genus_type(EDX_MULTI_CHOICE_PROBLEM_TYPE)
         elif 'numeric-response' in question_type:
@@ -307,7 +345,15 @@ def create_new_item(bank, data):
                 files_list[filename] = DataInputStream(file)
             form = add_files_to_form(form, files_list)
     else:
-        form = bank.get_item_form_for_create([ITEM_WITH_WRONG_ANSWERS_RECORD_TYPE])
+        question_type = None
+        if 'question' in data and 'type' in data['question']:
+            question_type = data['question']['type']
+        if question_type is not None and 'label-ortho-faces' in question_type:
+            form = bank.get_item_form_for_create([LABEL_ORTHO_FACES_ITEM_RECORD,
+                                                  ITEM_WITH_WRONG_ANSWERS_RECORD_TYPE])
+        else:
+            form = bank.get_item_form_for_create([ITEM_WITH_WRONG_ANSWERS_RECORD_TYPE])
+
         form.display_name = str(data['name'])
         form.description = str(data['description'])
         if 'genus' in data:
@@ -345,6 +391,40 @@ def evaluate_inline_choice(answers, submission):
     return correct
 
 
+def extract_id_using_index(object_, potential_id, key):
+    # Used when trying to create Drag and Drop questions & answers with the
+    # same RESTful call, when the forms require zoneId for example, but
+    # the client doesn't have them yet.
+    if object_ is None:
+        # For response forms, will expect them to pass in actual IDs, because the
+        # client will have them
+        return potential_id
+
+    try:
+        if isinstance(potential_id, int):
+            raise InvalidId
+        ObjectId(potential_id)
+    except InvalidId:
+        try:
+            int_potential_id = int(potential_id)
+        except ValueError:
+            raise InvalidArgument('The ID is not a valid ID or index.')
+        if isinstance(object_, OsidObjectForm):
+            # if it's a form, things aren't shuffled yet, so just pull from the _my_map
+            current_key_values = object_._my_map['{0}s'.format(key)]
+        else:
+            # actually need to get the unrandomized version of the keys...
+            current_key_values = getattr(object_, 'get_unrandomized_{0}s'.format(key))()
+
+        if 0 <= int_potential_id < len(current_key_values):
+            potential_id = current_key_values[int_potential_id]['id']
+        else:
+            raise InvalidArgument('desired id as a {0} index does not exist'.format(key))
+    else:
+        pass
+    return potential_id
+
+
 def find_answer_in_answers(ans_id, ans_list):
     for ans in ans_list:
         if ans.ident == ans_id:
@@ -367,8 +447,8 @@ def get_answer_records(answer):
 
 def get_assessment_manager():
     condition = PROXY_SESSION.get_proxy_condition()
-    dummy_request = TestRequest(username=web.ctx.env.get('HTTP_X_API_PROXY', 'student@tiss.edu'),
-                                authenticated=True)
+    dummy_request = SimpleRequest(username=web.ctx.env.get('HTTP_X_API_PROXY', 'student@tiss.edu'),
+                                  authenticated=True)
     condition.set_http_request(dummy_request)
 
     if 'HTTP_X_API_LOCALE' in web.ctx.env:
@@ -405,6 +485,12 @@ def get_choice_files(files):
     """
     # return {k:v for k,v in files.iteritems() if k.startswith('choice')}
     return dict((k, files[k]) for k in files.keys() if k.startswith('choice'))
+
+
+def get_drop_behavior_as_string(object_map):
+    if 'dropBehaviorType' in object_map:
+        return object_map['dropBehaviorType']
+    return None
 
 
 def get_media_path(bank):
@@ -462,11 +548,16 @@ def get_answer_records_from_item_genus(item_genus_type):
         answer_record_types.append(SIMPLE_INLINE_CHOICE_ANSWER_RECORD)
     elif item_genus_type == NUMERIC_RESPONSE_INTERACTION_GENUS:
         answer_record_types.append(MULTI_LANGUAGE_NUMERIC_RESPONSE_ANSWER_RECORD)
+    elif item_genus_type == DRAG_AND_DROP_ITEM_GENUS_TYPE:
+        answer_record_types.append(DRAG_AND_DROP_ANSWER_RECORD)
+        answer_record_types.remove(QTI_ANSWER)
 
     return answer_record_types
 
 
 def get_choice_ids_in_order(new_choice_list, existing_choice_list):
+    new_choice_list = [c for c in new_choice_list
+                       if not object_to_be_deleted(c) and object_to_be_ordered(c)]
     choice_order = []
     if all('order' in c for c in new_choice_list):
         # sort the new choice list by 'order' first
@@ -499,10 +590,78 @@ def get_choice_ids_in_order(new_choice_list, existing_choice_list):
                             choice_id = matching_choice_id
                             break
 
-                found_choice_ids.append(choice_id)
+                if choice_id not in found_choice_ids:
+                    found_choice_ids.append(choice_id)
 
-            choice_order.append(choice_id)
+            if choice_id not in choice_order:
+                choice_order.append(choice_id)
     return choice_order
+
+
+def get_container_id_as_string(form, object_map):
+    """In order to support creation of zones with the same form as new targets,
+         we will also accept a "target index" for the container_id, and then
+         we find the actual targetId in this method.
+    """
+    # NOTE: This assumes the targets are created first in the form!!
+    if 'containerId' in object_map:
+        container_id = extract_id_using_index(form,
+                                              object_map['containerId'],
+                                              'target')
+        return container_id
+    return None
+
+
+def get_description_as_display_text(object_map):
+    if 'description' in object_map:
+        description = object_map['description']
+        language_type = DEFAULT_LANGUAGE_TYPE
+        format_type = DEFAULT_FORMAT_TYPE
+        script_type = DEFAULT_SCRIPT_TYPE
+
+        if isinstance(description, dict):
+            language_type = Type(description['languageTypeId'])
+            format_type = Type(description['formatTypeId'])
+            script_type = Type(description['scriptTypeId'])
+            description = description['text']
+
+        return DisplayText(text=description,
+                           language_type=language_type,
+                           format_type=format_type,
+                           script_type=script_type)
+    return None
+
+
+def get_language_to_remove_as_type(object_map):
+    if 'removeLanguageType' in object_map:
+        return Type(object_map['removeLanguageType'])
+    return None
+
+
+def get_name_as_display_text(object_map):
+    if 'name' in object_map:
+        name = object_map['name']
+        language_type = DEFAULT_LANGUAGE_TYPE
+        format_type = DEFAULT_FORMAT_TYPE
+        script_type = DEFAULT_SCRIPT_TYPE
+
+        if isinstance(name, dict):
+            language_type = Type(name['languageTypeId'])
+            format_type = Type(name['formatTypeId'])
+            script_type = Type(name['scriptTypeId'])
+            name = name['text']
+
+        return DisplayText(text=name,
+                           language_type=language_type,
+                           format_type=format_type,
+                           script_type=script_type)
+    return None
+
+
+def get_name_as_string(object_map):
+    if 'name' in object_map:
+        return object_map['name']
+    return None
 
 
 def get_question_records_from_item_genus(item_genus_type):
@@ -536,7 +695,10 @@ def get_question_records_from_item_genus(item_genus_type):
         question_record_types.append(MULTI_LANGUAGE_INLINE_CHOICE_QUESTION_RECORD)
     elif item_genus_type in [NUMERIC_RESPONSE_INTERACTION_GENUS]:
         question_record_types.append(MULTI_LANGUAGE_NUMERIC_RESPONSE_QUESTION_RECORD)
-
+    elif item_genus_type in [DRAG_AND_DROP_ITEM_GENUS_TYPE]:
+        question_record_types.append(DRAG_AND_DROP_QUESTION_RECORD)
+        question_record_types.append(FILES_QUESTION_RECORD)  # Because we know this will use files
+        question_record_types.remove(QTI_QUESTION)
     # add in audio time limit support for MW sandbox and
 
     if item_genus_type in [ORDER_INTERACTION_MW_SANDBOX_GENUS,
@@ -584,6 +746,146 @@ def get_question_status(bank, section, question_id):
     return data
 
 
+def get_response_map(bank, section, question_id):
+    # append the student's last response and status if available
+    if section.is_question_answered(question_id):
+        # response = bank.get_response(section.ident, question_id)
+        response = section.get_response(question_id)
+        response_map = response.object_map
+        if response_map['isCorrect'] is None:
+            # to make this work with validate_response()
+            response_map['type'] = response_map['recordTypeIds']
+            correct = validate_response(response_map,
+                                        bank.get_answers(section.ident,
+                                                         question_id))
+            response_map.update({
+                'isCorrect': correct
+            })
+
+        try:
+            response_map['confusedLearningObjectiveIds'] = section.get_confused_learning_objective_ids(question_id)
+        except IllegalState:
+            pass
+        try:
+            response_map['feedback'] = update_json_response_with_feedback(bank,
+                                                                          section,
+                                                                          question_id,
+                                                                          response_map['isCorrect'])
+        except IllegalState:
+            pass
+    else:
+        response_map = None  # no response
+    return response_map
+
+
+def get_spatial_unit_as_spatial_unit(object_map):
+    if 'spatialUnit' in object_map:
+        unit = object_map['spatialUnit']
+        # For now, we only support rectangular spatial units
+        if ('recordType' in unit and
+                unit['recordType'] == 'osid.mapping.SpatialUnit%3Arectangle%40ODL.MIT.EDU'):
+            if 'coordinateValues' not in unit:
+                raise InvalidArgument('coordinateValues required for rectangular spatial units')
+            if 'width' not in unit:
+                raise InvalidArgument('width required for rectangular spatial units')
+            if 'height' not in unit:
+                raise InvalidArgument('height required for rectangular spatial units')
+            return RectangularSpatialUnit(coordinate=BasicCoordinate(unit['coordinateValues']),
+                                          width=unit['width'],
+                                          height=unit['height'])
+    return None
+
+
+def get_taken_section_map(taken, update=False, with_files=False, bank=None, with_additional_attempts=False):
+    # let's get the questions first ... we need to inject that information into
+    # the response, so that UI side we can match on the original, canonical itemId
+    # also need to include the questions's learningObjectiveIds
+    def section_map(_section):
+        s_map = _section.object_map
+        s_map['id'] = str(_section.ident)
+        s_map['type'] = 'AssessmentSection'
+
+        if with_additional_attempts:
+            # convenience method for Tejas
+            for index, response in enumerate(bank.get_responses(_section.ident)):
+                s_map['questions'][index]['additionalAttempts'] = []
+                for additional_attempt in response.get_additional_attempts():
+                    # have to use ._my_answer here because feedback record calls
+                    # osid_objects.OsidObject.object_map, which expects an OsidObject
+                    # not a Rule
+                    attempt_map = additional_attempt._my_answer.object_map
+                    if 'submissionTime' in attempt_map and attempt_map['submissionTime'] is not None:
+                        attempt_map['submissionTime'] = {
+                            'year': attempt_map['submissionTime'].year,
+                            'month': attempt_map['submissionTime'].month,
+                            'day': attempt_map['submissionTime'].day,
+                            'hour': attempt_map['submissionTime'].hour,
+                            'minute': attempt_map['submissionTime'].minute,
+                            'second': attempt_map['submissionTime'].second,
+                            'microsecond': attempt_map['submissionTime'].microsecond
+                        }
+                    s_map['questions'][index]['additionalAttempts'].append(attempt_map)
+
+        if update:
+            # this should get called only when "taking" assessments, and not for results
+            # This assumes that section object maps now get questions via the mixins.py
+            question_maps = []
+
+            questions = _section.get_questions(update=update)
+            for index, question in enumerate(questions):
+                question_map = question.object_map
+                if with_files:
+                    question_map['files'] = question.get_files()
+                response_map = get_response_map(bank,
+                                                _section,
+                                                question.ident)
+                responded = False
+                if response_map is not None:
+                    responded = True
+                question_map.update({
+                    'itemId': _section._my_map['questions'][index]['itemId'],
+                    'response': response_map,
+                    'responded': responded
+                })
+                if responded:
+                    question_map['isCorrect'] = response_map['isCorrect']
+                question_maps.append(question_map)
+            s_map['questions'] = question_maps
+
+        return s_map
+
+    section_maps = []
+
+    try:
+        sections = taken._get_assessment_sections()
+        section_maps = [section_map(s) for s in sections]
+    except KeyError:
+        # no sections -- never got the question
+        pass
+
+    return section_maps
+
+
+def get_text_as_display_text(object_map):
+    if 'text' in object_map:
+        text = object_map['text']
+        language_type = DEFAULT_LANGUAGE_TYPE
+        format_type = DEFAULT_FORMAT_TYPE
+        script_type = DEFAULT_SCRIPT_TYPE
+
+        if isinstance(text, dict):
+            language_type = Type(text['languageTypeId'])
+            format_type = Type(text['formatTypeId'])
+            script_type = Type(text['scriptTypeId'])
+            text = text['text']
+
+        return DisplayText(text=text,
+                           language_type=language_type,
+                           format_type=format_type,
+                           script_type=script_type)
+    return None
+
+
 def get_response_submissions(response):
     if response['type'] == 'answer-record-type%3Alabel-ortho-faces%40ODL.MIT.EDU':
         submission = response['integerValues']
@@ -601,10 +903,41 @@ def get_response_submissions(response):
         submission = response['inlineRegions']
     elif is_numeric_response(response):
         # just take the first region for now
-        submission = response[response.keys()[0]]
+        response_keys = response.keys()
+        del response_keys['type']
+        del response_keys['recordTypeIds']
+
+        submission = response[response_keys[0]]
     else:
         raise Unsupported
     return submission
+
+
+def get_reuse_as_integer(object_map):
+    if 'reuse' in object_map:
+        try:
+            return int(object_map['reuse'])
+        except ValueError:
+            # cannot be parsed as int
+            raise InvalidArgument('reuse must be an integer')
+    return None
+
+
+def get_visible_as_boolean(object_map):
+    if 'visible' in object_map:
+        return bool(object_map['visible'])
+    return None
+
+
+def is_drag_and_drop(object_data):
+    if 'type' in object_data:
+        # in this case (for responses) it is a passed dictionary
+        return 'drag-and-drop' in object_data['type']
+    if 'genusTypeId' in object_data:
+        return 'drag-and-drop' in object_data['genusTypeId']
+
+    # in this case object_data is a list of types / recordTypeIds
+    return any('drag-and-drop' in t for t in object_data)
 
 
 def is_file_submission(response):
@@ -706,6 +1039,14 @@ def is_right_answer(answer):
             str(answer.genus_type).lower() == 'genustype%3adefault%40dlkit.mit.edu')
 
 
+def object_to_be_deleted(object_map):
+    return 'delete' in object_map and object_map['delete']
+
+
+def object_to_be_ordered(object_map):
+    return 'order' in object_map and object_map['order'] is not None
+
+
 def match_submission_to_answer(answers, response):
     submission = get_response_submissions(response)
     answer_match = None
@@ -739,6 +1080,24 @@ def match_submission_to_answer(answers, response):
         return answer_match
 
 
+def remove_language_type(object_map):
+    return 'removeLanguageType' in object_map
+
+
+def remove_field(object_map, field):
+    if 'removeFromField' in object_map:
+        return object_map['removeFromField'] == field
+    return False
+
+
+def reorder_list_by_unrandomized_list(unrandomized_list, randomized_list):
+    reordered_list = []
+    for object_ in unrandomized_list:
+        matching_object = [o for o in randomized_list if o['id'] == object_['id']][0]
+        reordered_list.append(matching_object)
+    return reordered_list
+
+
 def set_answer_form_genus_and_feedback(answer, answer_form):
     """answer is a dictionary"""
     if 'genus' in answer:
@@ -763,8 +1122,8 @@ def set_answer_form_genus_and_feedback(answer, answer_form):
     elif 'updatedFeedback' in answer:
         updated_feedback = utilities.create_display_text(answer['updatedFeedback'])
         answer_form.edit_feedback(updated_feedback)
-    elif 'removeLanguageType' in answer:
-        language_type = Type(answer['removeLanguageType'])
+    elif remove_language_type(answer):
+        language_type = get_language_to_remove_as_type(answer)
         answer_form.remove_feedback_language(language_type)
 
     if 'confusedLearningObjectiveIds' in answer:
@@ -784,13 +1143,18 @@ def set_assessment_offerings(bank, offerings, assessment_id, update=False):
 
         if update:
             offering_form = bank.get_assessment_offered_form_for_update(assessment_id)
+            if str(UNLOCK_PREVIOUS_BUTTON_OFFERED) not in offering_form._my_map['recordTypeIds']:
+                record = offering_form.get_assessment_offered_form_record(UNLOCK_PREVIOUS_BUTTON_OFFERED)
+                record._init_metadata()
+                record._init_map()
             execute = bank.update_assessment_offered
         else:
             # use our new Offered Record object, which lets us do
             # "can_review_whether_correct()" on the Taken.
             offering_form = bank.get_assessment_offered_form_for_create(assessment_id,
                                                                         [REVIEWABLE_OFFERED,
-                                                                         N_OF_M_OFFERED])
+                                                                         N_OF_M_OFFERED,
+                                                                         UNLOCK_PREVIOUS_BUTTON_OFFERED])
             execute = bank.create_assessment_offered
 
         if 'genusTypeId' in offering:
@@ -828,6 +1192,9 @@ def set_assessment_offerings(bank, offerings, assessment_id, update=False):
 
         if 'nOfM' in offering:
             offering_form.set_n_of_m(int(offering['nOfM']))
+
+        if 'unlockPrevious' in offering:
+            offering_form.set_unlock_previous(offering['unlockPrevious'])
 
         new_offering = execute(offering_form)
         return_data.append(new_offering)
@@ -915,6 +1282,11 @@ def update_answer_form(answer, form, question=None):
             form.clear_choice_ids()
             for choice_id in answer['choiceIds']:
                 form.add_choice_id(choice_id)
+    elif is_drag_and_drop(answer_types):
+        # capture this before qti
+        form = update_drag_drop_answer_form_with_coordinate_conditions(form, answer, question)
+        form = update_drag_drop_answer_form_with_spatial_unit_conditions(form, answer, question)
+        form = update_drag_drop_answer_form_with_zone_conditions(form, answer, question)
     elif any('qti' in t for t in answer_types):
         pass
     else:
@@ -934,14 +1306,273 @@ def update_answer_form_with_files(form, data):
     return form
 
 
+def update_drag_drop_answer_form_with_coordinate_conditions(form, answer_map, question=None):
+    """In order to support creation of answers with the same RESTful call as questions,
+         we will also accept "indices" for the container_id and droppable_id, and then
+         we find the actual ids in this method.
+    Need the corresponding question in order to make this work. Note that this
+    assumes the question already exists.
+    """
+    if 'coordinateConditions' in answer_map:
+        form.clear_coordinate_conditions()
+        for coordinate_condition in answer_map['coordinateConditions']:
+            droppable_id = extract_id_using_index(question,
+                                                  coordinate_condition['droppableId'],
+                                                  'droppable')
+            container_id = extract_id_using_index(question,
+                                                  coordinate_condition['containerId'],
+                                                  'target')
+            form.add_coordinate_condition(droppable_id,
+                                          container_id,
+                                          BasicCoordinate(coordinate_condition['coordinateValues']))
+    elif 'clearCoordinateConditions' in answer_map and answer_map['clearCoordinateConditions']:
+        form.clear_coordinate_conditions()
+    return form
+
+
+def update_drag_drop_answer_form_with_spatial_unit_conditions(form, answer_map, question=None):
+    """In order to support creation of answers with the same RESTful call as questions,
+         we will also accept "indices" for the container_id and droppable_id, and then
+         we find the actual ids in this method.
+    Need the corresponding question in order to make this work. Note that this
+    assumes the question already exists.
+    """
+    if 'spatialUnitConditions' in answer_map:
+        form.clear_spatial_unit_conditions()
+        for spatial_unit_condition in answer_map['spatialUnitConditions']:
+            droppable_id = extract_id_using_index(question,
+                                                  spatial_unit_condition['droppableId'],
+                                                  'droppable')
+            container_id = extract_id_using_index(question,
+                                                  spatial_unit_condition['containerId'],
+                                                  'target')
+            spatial_unit = get_spatial_unit_as_spatial_unit(spatial_unit_condition)
+            form.add_spatial_unit_condition(droppable_id,
+                                            container_id,
+                                            spatial_unit)
+    elif 'clearSpatialUnitConditions' in answer_map and answer_map['clearSpatialUnitConditions']:
+        form.clear_spatial_unit_conditions()
+    return form
+
+
+def update_drag_drop_answer_form_with_zone_conditions(form, answer_map, question=None):
+    """In order to support creation of answers with the same RESTful call as questions,
+         we will also accept "indices" for the zone_id and droppable_id, and then
+         we find the actual ids in this method.
+    Need the corresponding question in order to make this work. Note that this
+    assumes the question already exists.
+    """
+    if 'zoneConditions' in answer_map:
+        form.clear_zone_conditions()
+        for zone_condition in answer_map['zoneConditions']:
+            droppable_id = extract_id_using_index(question,
+                                                  zone_condition['droppableId'],
+                                                  'droppable')
+            zone_id = extract_id_using_index(question,
+                                             zone_condition['zoneId'],
+                                             'zone')
+            form.add_zone_condition(droppable_id,
+                                    zone_id)
+    elif 'clearZoneConditions' in answer_map and answer_map['clearZoneConditions']:
+        form.clear_zone_conditions()
+    return form
+
+
+def update_drag_drop_question_form_with_droppables(form, question_map):
+    if 'droppables' in question_map:
+        for droppable in question_map['droppables']:
+            droppable_text = get_text_as_display_text(droppable)
+            reuse = get_reuse_as_integer(droppable)
+            drop_behavior_type = get_drop_behavior_as_string(droppable)
+            name = get_name_as_display_text(droppable)
+
+            if 'id' in droppable:
+                if object_to_be_deleted(droppable):
+                    # remove droppable
+                    form.remove_droppable(droppable['id'])
+                    continue
+                elif remove_language_type(droppable):
+                    # remove droppable language
+                    if remove_field(droppable, 'text'):
+                        form.remove_droppable_text_language(get_language_to_remove_as_type(droppable),
+                                                            droppable['id'])
+                    elif remove_field(droppable, 'name'):
+                        form.remove_droppable_name_language(get_language_to_remove_as_type(droppable),
+                                                            droppable['id'])
+                    continue
+                # update droppable
+                form.update_droppable(droppable['id'],
+                                      droppable_text=droppable_text,
+                                      name=name,
+                                      reuse=reuse,
+                                      drop_behavior_type=drop_behavior_type)
+                continue
+            # add new droppable
+            # We must honor the default values for these parameters, if they aren't given
+            form.add_droppable(droppable_text=droppable_text,
+                               name=name or '',
+                               reuse=reuse or 1,
+                               drop_behavior_type=drop_behavior_type)
+            continue
+        # set droppables order
+        droppable_order = get_choice_ids_in_order(question_map['droppables'], form._my_map['droppables'])
+        # now re-order the choices per what is sent in
+        # need to also account for mix of new choices and old choices
+        if len(droppable_order) > 0:
+            try:
+                form.set_droppable_order(droppable_order)
+            except AttributeError:
+                pass
+    elif 'clearDroppables' in question_map and question_map['clearDroppables']:
+        form.clear_droppables()
+    elif 'clearDroppableTexts' in question_map:
+        # list of droppableIds to clear the texts of
+        for droppable_id in question_map['clearDroppableTexts']:
+            form.clear_droppable_texts(droppable_id)
+    elif 'clearDroppableNames' in question_map:
+        # list of droppableIds to clear the names of
+        for droppable_id in question_map['clearDroppableNames']:
+            form.clear_droppable_names(droppable_id)
+    return form
+
+
+def update_drag_drop_question_form_with_targets(form, question_map):
+    if 'targets' in question_map:
+        for target in question_map['targets']:
+            target_text = get_text_as_display_text(target)
+            drop_behavior_type = get_drop_behavior_as_string(target)
+            name = get_name_as_display_text(target)
+
+            if 'id' in target:
+                if object_to_be_deleted(target):
+                    # remove target
+                    form.remove_target(target['id'])
+                    continue
+                elif remove_language_type(target):
+                    # remove target language
+                    if remove_field(target, 'text'):
+                        form.remove_target_text_language(get_language_to_remove_as_type(target),
+                                                         target['id'])
+                    elif remove_field(target, 'name'):
+                        form.remove_target_name_language(get_language_to_remove_as_type(target),
+                                                         target['id'])
+                    continue
+                # update target
+                form.update_target(target['id'],
+                                   target_text=target_text,
+                                   name=name,
+                                   drop_behavior_type=drop_behavior_type)
+                continue
+            # add new target
+            # We must honor the default values
+            form.add_target(target_text=target_text,
+                            name=name or '',
+                            drop_behavior_type=drop_behavior_type)
+            continue
+        # set targets order
+        target_order = get_choice_ids_in_order(question_map['targets'], form._my_map['targets'])
+        # now re-order the choices per what is sent in
+        # need to also account for mix of new choices and old choices
+        if len(target_order) > 0:
+            try:
+                form.set_target_order(target_order)
+            except AttributeError:
+                pass
+    elif 'clearTargets' in question_map and question_map['clearTargets']:
+        form.clear_targets()
+    elif 'clearTargetTexts' in question_map:
+        # list of targetIds to clear the texts of
+        for target_id in question_map['clearTargetTexts']:
+            form.clear_target_texts(target_id)
+    elif 'clearTargetNames' in question_map:
+        # list of targetIds to clear the names of
+        for target_id in question_map['clearTargetNames']:
+            form.clear_target_names(target_id)
+    return form
+
+
+def update_drag_drop_question_form_with_zones(form, question_map):
+    if 'zones' in question_map:
+        for zone in question_map['zones']:
+            spatial_unit = get_spatial_unit_as_spatial_unit(zone)
+            container_id = get_container_id_as_string(form, zone)
+            drop_behavior_type = get_drop_behavior_as_string(zone)
+            reuse = get_reuse_as_integer(zone)
+            visible = get_visible_as_boolean(zone)
+
+            # cannot just return a string for name & description, because
+            # these are multi-language for zones
+            name = get_name_as_display_text(zone)
+            description = get_description_as_display_text(zone)
+
+            if 'id' in zone:
+                if object_to_be_deleted(zone):
+                    # remove zone
+                    form.remove_zone(zone['id'])
+                    continue
+                elif remove_language_type(zone):
+                    # remove zone language
+                    if remove_field(zone, 'name'):
+                        form.remove_zone_name_language(get_language_to_remove_as_type(zone),
+                                                       zone['id'])
+                    elif remove_field(zone, 'description'):
+                        form.remove_zone_description_language(get_language_to_remove_as_type(zone),
+                                                              zone['id'])
+                    continue
+                # update zone
+                form.update_zone(zone['id'],
+                                 name=name,
+                                 description=description,
+                                 spatial_unit=spatial_unit,
+                                 container_id=container_id,
+                                 visible=visible,
+                                 reuse=reuse,
+                                 drop_behavior_type=drop_behavior_type)
+                continue
+            # add new zone
+            # We must honor the default values
+            # but we can't do the same thing for boolean values
+            # i.e. visible or True will return True if visible is False or None
+            if visible is None:
+                visible = True
+            form.add_zone(spatial_unit,
+                          container_id,
+                          name=name or '',
+                          description=description or '',
+                          visible=visible,
+                          reuse=reuse or 0,
+                          drop_behavior_type=drop_behavior_type)
+            continue
+        # set zone order
+        zone_order = get_choice_ids_in_order(question_map['zones'], form._my_map['zones'])
+        # now re-order the choices per what is sent in
+        # need to also account for mix of new choices and old choices
+        if len(zone_order) > 0:
+            try:
+                form.set_zone_order(zone_order)
+            except AttributeError:
+                pass
+    elif 'clearZones' in question_map and question_map['clearZones']:
+        form.clear_zones()
+    elif 'clearZoneNames' in question_map:
+        # list of zoneIds to clear the names of
+        for zone_id in question_map['clearZoneNames']:
+            form.clear_zone_names(zone_id)
+    elif 'clearZoneDescriptions' in question_map:
+        # list of zoneIds to clear the names of
+        for zone_id in question_map['clearZoneDescriptions']:
+            form.clear_zone_descriptions(zone_id)
+    return form
+
+
 def update_form_with_files(form, data):
     for label, asset_data in data['fileIds'].iteritems():
         # don't let them overwrite files from other languages...
         if label not in form._my_map['fileIds']:
-            form.add_asset(asset_data['assetId'],
-                           asset_content_id=asset_data['assetContentId'],
+            form.add_asset(utilities.clean_id(asset_data['assetId']),
+                           asset_content_id=utilities.clean_id(asset_data['assetContentId']),
                            label=label,
-                           asset_content_type=asset_data['assetContentTypeId'])
+                           asset_content_type=Type(asset_data['assetContentTypeId']))
     return form
 
 
@@ -987,6 +1618,147 @@ def update_item_metadata(data, form):
         pass
 
     return form
+
+
+def update_item_json_answers(item, item_map):
+    # for convenience, also return the wrong answers
+    try:
+        wrong_answers = item.get_wrong_answers()
+    except AttributeError:
+        pass
+    except TypeError:
+        # item has no answers
+        pass
+    else:
+        serialize = False
+        if isinstance(item_map, basestring):
+            item_map = json.loads(item_map)
+            serialize = True
+        for wa in wrong_answers:
+            item_map['answers'].append(wa.object_map)
+        if serialize:
+            item_map = json.dumps(item_map)
+    return item_map
+
+
+def update_item_json_random_choices(bank, item, item_map):
+    # for convenience, return choices in original order
+    item = bank.get_item(item.ident)
+    serialize = False
+    if isinstance(item_map, basestring):
+        item_map = json.loads(item_map)
+        serialize = True
+
+    try:
+        # need to re-get the item so that the choice order isn't already shuffled
+        # by .object_map
+        question = item.get_question()
+    except TypeError:
+        # item has no question
+        pass
+    else:
+        if hasattr(question, 'get_unrandomized_choices'):
+            unrandomized_choice_order = question.get_unrandomized_choices()
+
+            # now need to get the updated texts, because they might have Assets
+            if isinstance(unrandomized_choice_order, dict):
+                new_choices = {}
+                for region, choices in unrandomized_choice_order.iteritems():
+                    new_choices[region] = reorder_list_by_unrandomized_list(choices,
+                                                                            item_map['question']['choices'][region])
+            else:
+                new_choices = reorder_list_by_unrandomized_list(unrandomized_choice_order,
+                                                                item_map['question']['choices'])
+            item_map['question']['choices'] = new_choices
+        if hasattr(question, 'get_unrandomized_droppables'):
+            unrandomized_droppables_order = question.get_unrandomized_droppables()
+
+            new_droppables = reorder_list_by_unrandomized_list(unrandomized_droppables_order,
+                                                               item_map['question']['droppables'])
+
+            item_map['question']['droppables'] = new_droppables
+        if hasattr(question, 'get_unrandomized_targets'):
+            unrandomized_targets_order = question.get_unrandomized_targets()
+
+            new_targets = reorder_list_by_unrandomized_list(unrandomized_targets_order,
+                                                            item_map['question']['targets'])
+
+            item_map['question']['targets'] = new_targets
+        if hasattr(question, 'get_unrandomized_zones'):
+            unrandomized_zones_order = question.get_unrandomized_zones()
+
+            new_zones = reorder_list_by_unrandomized_list(unrandomized_zones_order,
+                                                          item_map['question']['zones'])
+
+            item_map['question']['zones'] = new_zones
+
+        if serialize:
+            item_map = json.dumps(item_map)
+    return item_map
+
+
+def update_json_response_with_feedback(bank, section, question_id, correct):
+    """ move this logic out of views, since it's re-used in both Submit endpoints
+    :param bank:
+    :param data_map:
+    :param section:
+    :param question:
+    :return:
+    """
+    def get_best_answer_to_use():
+        response = bank.get_response(section.ident, question_id)
+        response_map = response.object_map
+        response_map['type'] = response_map['recordTypeIds']
+        submissions = get_response_submissions(response_map)
+        answers = bank.get_answers(section.ident, question_id)
+        exact_answer_match = None
+        default_answer_match = None
+        for answer in answers:
+            correct_submissions = 0
+            answer_choice_ids = list(answer.get_choice_ids())
+            number_choices = len(answer_choice_ids)
+            if len(submissions) == number_choices:
+                for index, choice_id in enumerate(answer_choice_ids):
+                    if is_multiple_choice(response_map):
+                        if str(choice_id) in submissions:
+                            correct_submissions += 1
+            if not correct and str(answer.genus_type) == str(WRONG_ANSWER):
+                # take the first wrong answer by default ... just in case
+                # we don't have an exact match
+                default_answer_match = answer
+            elif correct and str(answer.genus_type) == str(RIGHT_ANSWER):
+                default_answer_match = answer
+
+            if (correct_submissions == number_choices and
+                    len(submissions) == number_choices):
+                exact_answer_match = answer
+                break
+
+        # now that we have either an exact match or a default (wrong) answer
+        # let's calculate the feedback and the confused LOs
+        answer_to_use = default_answer_match
+        if exact_answer_match is not None:
+            answer_to_use = exact_answer_match
+        return answer_to_use
+
+    feedback = None
+    try:
+        taken = section.get_assessment_taken()
+        feedback = taken.get_solution_for_question(question_id, section=section)['explanation']
+        if isinstance(feedback, basestring):
+            feedback = {
+                'text': feedback
+            }
+    except (IllegalState, TypeError, AttributeError):
+        # update with answer feedback, if available
+        # for now, just support this for multiple choice questions...
+        try:
+            best_answer_to_use = get_best_answer_to_use()
+            feedback = best_answer_to_use.feedback
+        except (KeyError, AttributeError, IllegalState, Unsupported):
+            pass
+
+    return feedback
 
 
 def update_question_form(question, form, create=False):
@@ -1165,6 +1937,31 @@ def update_question_form(question, form, create=False):
         else:
             if 'questionString' in question:
                 form.set_text(str(question['questionString']))
+    elif is_drag_and_drop(question_types):
+        # capture this before QTI
+
+        if 'questionString' in question:
+            try:
+                form.add_text(utilities.create_display_text(question['questionString']))
+            except AttributeError:
+                # to support legacy data
+                form.set_text(u'{0}'.format(question['questionString']).encode('utf8'))
+        elif remove_language_type(question):
+            language_type = get_language_to_remove_as_type(question)
+            form.remove_text_language(language_type)
+
+        form = update_drag_drop_question_form_with_droppables(form, question)
+        form = update_drag_drop_question_form_with_targets(form, question)
+        form = update_drag_drop_question_form_with_zones(form, question)
+
+        # set the shuffle parameters
+        if 'shuffleDroppables' in question:
+            form.set_shuffle_droppables(bool(question['shuffleDroppables']))
+        if 'shuffleTargets' in question:
+            form.set_shuffle_targets(bool(question['shuffleTargets']))
+        if 'shuffleZones' in question:
+            form.set_shuffle_zones(bool(question['shuffleZones']))
+
     elif any('qti' in t for t in question_types):
         if 'questionString' in question:
             try:
@@ -1175,18 +1972,18 @@ def update_question_form(question, form, create=False):
         elif 'updatedQuestionString' in question:
             updated_text = utilities.create_display_text(question['updatedQuestionString'])
             form.edit_text(updated_text)
-        elif 'removeLanguageType' in question:
-            language_type = Type(question['removeLanguageType'])
+        elif remove_language_type(question):
+            language_type = get_language_to_remove_as_type(question)
             form.remove_text_language(language_type)
         if 'choices' in question:
             for choice in question['choices']:
                 if 'id' in choice and 'updatedText' in choice:
                     updated_choice = utilities.create_display_text(choice['updatedText'])
                     form.edit_choice(updated_choice, choice['id'])
-                elif 'id' in choice and 'removeLanguageType' in choice:
-                    language_type = Type(choice['removeLanguageType'])
+                elif 'id' in choice and remove_language_type(choice):
+                    language_type = get_language_to_remove_as_type(choice)
                     form.remove_choice_language(language_type, choice['id'])
-                elif 'id' in choice and 'delete' in choice and choice['delete']:
+                elif 'id' in choice and object_to_be_deleted(choice):
                     form.remove_choice(choice['id'])
                 elif 'id' in choice:
                     try:
@@ -1200,14 +1997,10 @@ def update_question_form(question, form, create=False):
                         form.add_choice(utilities.create_display_text(choice['text']))
                     except InvalidArgument:
                         form.add_choice(u'{0}'.format(choice['text']).encode('utf8'))
-            desired_choices = [c for c in question['choices'] if 'delete' not in c]
-
-            choice_order = get_choice_ids_in_order(desired_choices, form._my_map['choices'])
+            choice_order = get_choice_ids_in_order(question['choices'], form._my_map['choices'])
             # now re-order the choices per what is sent in
             # need to also account for mix of new choices and old choices
-            if (len(choice_order) == len(desired_choices) and
-                    len(choice_order) > 0 and
-                    len(choice_order) == len(form._my_map['choices'])):
+            if len(choice_order) > 0:
                 try:
                     form.set_choice_order(choice_order)
                 except AttributeError:
@@ -1221,10 +2014,10 @@ def update_question_form(question, form, create=False):
                     if 'id' in choice and 'updatedText' in choice:
                         updated_choice = utilities.create_display_text(choice['updatedText'])
                         form.edit_choice(updated_choice, choice['id'], region)
-                    elif 'id' in choice and 'removeLanguageType' in choice:
-                        language_type = Type(choice['removeLanguageType'])
+                    elif 'id' in choice and remove_language_type(choice):
+                        language_type = get_language_to_remove_as_type(choice)
                         form.remove_choice_language(language_type, choice['id'], region)
-                    elif 'id' in choice and 'delete' in choice and choice['delete']:
+                    elif 'id' in choice and object_to_be_deleted(choice):
                         form.remove_choice(choice['id'], region)
                     elif 'id' in choice:
                         try:
@@ -1240,16 +2033,12 @@ def update_question_form(question, form, create=False):
                         except InvalidArgument:
                             form.add_choice(u'{0}'.format(choice['text']).encode('utf8'), region)
 
-                desired_choices = [c for c in region_data['choices'] if 'delete' not in c]
-
-                choice_order = get_choice_ids_in_order(desired_choices,
+                choice_order = get_choice_ids_in_order(region_data['choices'],
                                                        form._my_map['choices'][region])
 
                 # now re-order the choices per what is sent in
                 # need to also account for mix of new choices and old choices
-                if (len(choice_order) == len(desired_choices) and
-                        len(choice_order) > 0 and
-                        len(choice_order) == len(form._my_map['choices'][region])):
+                if len(choice_order) > 0:
                     try:
                         form.set_choice_order(choice_order, region)
                     except AttributeError:
@@ -1265,8 +2054,13 @@ def update_question_form(question, form, create=False):
         if 'timeValue' in question:
             form.set_time_value(Duration(**question['timeValue']))
         if 'variables' in question:
-            # TODO: edit existing variable
             for var_data in question['variables']:
+                try:
+                    # remove the variable if it exists
+                    form.remove_variable(var_data['id'])
+                except IllegalState:
+                    pass
+
                 if 'format'in var_data:
                     var_format = var_data['format']
                 else:
@@ -1377,6 +2171,10 @@ def update_response_form(response, form):
                 form.add_decimal_value(float(response[region]), region)
             except ValueError:
                 form.set_text(str(response[region]))
+    elif is_drag_and_drop(response):
+        form = update_drag_drop_answer_form_with_coordinate_conditions(form, response)
+        form = update_drag_drop_answer_form_with_spatial_unit_conditions(form, response)
+        form = update_drag_drop_answer_form_with_zone_conditions(form, response)
     else:
         raise Unsupported()
     return form

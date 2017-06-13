@@ -4,9 +4,9 @@ import os
 import sys
 import web
 
-import assessment
-import logging_
-import repository
+from assessment import assessment
+from logging_ import logging_
+from repository import repository
 import utilities
 
 from web.wsgiserver import CherryPyWSGIServer
@@ -53,7 +53,7 @@ class index:
 
 class version:
     def GET(self):
-        return '1.11.1'
+        return '3.15.4'
 
 
 class video_test:

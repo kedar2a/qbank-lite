@@ -2,7 +2,7 @@ import json
 
 from copy import deepcopy
 
-from dlkit_runtime.primordium import Id
+from dlkit.runtime.primordium import Id
 
 from paste.fixture import AppError
 
@@ -101,7 +101,7 @@ class LogCrUDTests(BaseLoggingTestCase):
         )
         self.assertEqual(
             log['description']['text'],
-            'Orchestrated Log for the assessment service'
+            'Orchestrated assessment Log'
         )
         self.assertEqual(
             self.assessment_bank.ident.identifier,

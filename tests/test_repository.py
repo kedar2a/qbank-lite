@@ -4,14 +4,14 @@ import os
 
 from bs4 import BeautifulSoup
 
-from dlkit_runtime.configs import FILESYSTEM_ASSET_CONTENT_TYPE
-from dlkit_runtime.errors import NotFound
-from dlkit_runtime.primordium import DataInputStream, Type, Id, DisplayText
+from dlkit.runtime.errors import NotFound
+from dlkit.runtime.primordium import DataInputStream, Type, Id, DisplayText
+from dlkit.records.registry import ASSESSMENT_RECORD_TYPES,\
+    ASSET_CONTENT_RECORD_TYPES, ASSET_CONTENT_GENUS_TYPES
 
-from testing_utilities import BaseTestCase, get_fixture_repository, get_managers
+from testing_utilities import BaseTestCase, get_fixture_repository,\
+    get_managers
 from urllib import unquote, quote
-
-from records.registry import ASSESSMENT_RECORD_TYPES, ASSET_CONTENT_RECORD_TYPES
 
 import utilities
 
@@ -20,6 +20,8 @@ ABS_PATH = os.path.abspath(os.path.join(PROJECT_PATH, os.pardir))
 
 SIMPLE_SEQUENCE_RECORD = Type(**ASSESSMENT_RECORD_TYPES['simple-child-sequencing'])
 MULTI_LANGUAGE_ASSET_CONTENTS = Type(**ASSET_CONTENT_RECORD_TYPES['multi-language'])
+ALT_TEXT_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['alt-text'])
+MEDIA_DESCRIPTION_ASSET_CONTENT_GENUS_TYPE = Type(**ASSET_CONTENT_GENUS_TYPES['media-description'])
 
 
 class BaseRepositoryTestCase(BaseTestCase):
@@ -200,7 +202,8 @@ class AssetContentTests(BaseRepositoryTestCase):
 
     def test_can_get_asset_content_file(self):
         req = self.app.get(self.url + '/stream')
-        self.ok(req)
+        # self.ok(req)
+        self.code(req, 206)
         self.test_file.seek(0)
         self.assertEqual(
             req.body,
@@ -379,11 +382,16 @@ class AssetContentTests(BaseRepositoryTestCase):
         image = soup.find('img')
 
         req = self.app.get(image['src'])
-        self.ok(req)
+        # self.ok(req)
+        self.code(req, 206)
         headers = req.header_dict
         self.assertIn('image/png', headers['content-type'])
-        self.assertIn('.png', headers['content-disposition'])
-        original_content_length = headers['content-length']
+        self.assertEqual(headers['accept-ranges'], 'bytes')
+        # self.assertIn('.png', headers['content-disposition'])
+        # original_content_length = headers['content-length']
+        self.assertIn('content-range', headers)
+        self.assertEqual('bytes 0-8191/152318', headers['content-range'][0])
+        self.assertEqual('bytes 147456-152317/152318', headers['content-range'][-1])
 
         # need to get rid of the /stream part of the path to just get the content details URL
         content_url = image['src'].replace('/stream', '')
@@ -401,11 +409,18 @@ class AssetContentTests(BaseRepositoryTestCase):
         image = soup.find('img')
 
         req = self.app.get(image['src'])
-        self.ok(req)
+        # self.ok(req)
+        self.code(req, 206)
         headers = req.header_dict
         self.assertNotIn('image/png', headers['content-type'])
-        self.assertIn('.sltng', headers['content-disposition'])
-        self.assertNotEqual(original_content_length, headers['content-length'])
+        self.assertEqual(headers['accept-ranges'], 'bytes')
+        self.assertEqual('None', headers['content-type'])  # what would sltng be??
+        # self.assertIn('.sltng', headers['content-disposition'])
+        # self.assertNotEqual(original_content_length, headers['content-length'])
+        self.assertIn('content-range', headers)
+        expected_range = 'bytes 0-8191/{0}'.format(str(os.path.getsize(self._logo_upload_test_file.name)))
+        self.assertIn(expected_range,
+                      headers['content-range'])
 
     def test_updated_asset_content_in_choices_shows_up_properly_in_item_qti(self):
         item = self.create_item_with_image_in_choices()
@@ -420,11 +435,16 @@ class AssetContentTests(BaseRepositoryTestCase):
         image = soup.find('img')
 
         req = self.app.get(image['src'])
-        self.ok(req)
+        # self.ok(req)
+        self.code(req, 206)
         headers = req.header_dict
         self.assertIn('image/png', headers['content-type'])
-        self.assertIn('.png', headers['content-disposition'].lower())
-        original_content_length = headers['content-length']
+        self.assertEqual(headers['accept-ranges'], 'bytes')
+        # self.assertIn('.png', headers['content-disposition'].lower())
+        # original_content_length = headers['content-length']
+        self.assertIn('content-range', headers)
+        self.assertIn('bytes 0-', headers['content-range'])
+        # small file that depends on the choice image, either 512 or 641 bytes...
 
         # need to get rid of the /stream part of the path to just get the content details URL
         content_url = image['src'].replace('/stream', '')
@@ -442,11 +462,18 @@ class AssetContentTests(BaseRepositoryTestCase):
         image = soup.find('img')
 
         req = self.app.get(image['src'])
-        self.ok(req)
+        # self.ok(req)
+        self.code(req, 206)
         headers = req.header_dict
         self.assertNotIn('image/png', headers['content-type'])
-        self.assertIn('.sltng', headers['content-disposition'])
-        self.assertNotEqual(original_content_length, headers['content-length'])
+        self.assertEqual('None', headers['content-type'])  # what would sltng be??
+        self.assertEqual(headers['accept-ranges'], 'bytes')
+        # self.assertIn('.sltng', headers['content-disposition'])
+        # self.assertNotEqual(original_content_length, headers['content-length'])
+        self.assertIn('content-range', headers)
+        expected_range = 'bytes 0-8191/{0}'.format(str(os.path.getsize(self._logo_upload_test_file.name)))
+        self.assertIn(expected_range,
+                      headers['content-range'])
 
     def test_can_set_asset_content_display_name_and_description_to_foreign_language(self):
         import pdb; pdb.set_trace()
@@ -793,6 +820,57 @@ class AssetQueryTests(BaseRepositoryTestCase):
                 asset_content['url']
             )
 
+    def test_can_get_assets_from_all_repositories(self):
+        from testing_utilities import create_test_repository
+        self._video_upload_test_file.seek(0)
+        req = self.app.post(self.url,
+                            upload_files=[('inputFile', 'video-js-test.mp4', self._video_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+
+        new_repo = create_test_repository()
+        url = '/api/v1/repository/repositories/{0}/assets'.format(str(new_repo.ident))
+
+        self._caption_upload_test_file.seek(0)
+        req = self.app.post(url,
+                            upload_files=[('inputFile', 'new_file.vtt', self._caption_upload_test_file.read())])
+        self.ok(req)
+
+        url = '{0}?fullUrls&allAssets'.format(self.url)
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+
+        self.assertEqual(len(data), 2)
+        asset_1 = data[0]
+        self.assertEqual(
+            len(asset_1['assetContents']),
+            1
+        )
+        possible_ac_types = ['asset-content-genus-type%3Amp4%40ODL.MIT.EDU',
+                             'asset-content-genus-type%3Avtt%40ODL.MIT.EDU']
+        self.assertIn(
+            asset_1['assetContents'][0]['genusTypeId'],
+            possible_ac_types
+        )
+        asset_2 = data[1]
+        self.assertEqual(
+            len(asset_2['assetContents']),
+            1
+        )
+        self.assertIn(
+            asset_2['assetContents'][0]['genusTypeId'],
+            possible_ac_types
+        )
+        self.assertNotEqual(
+            asset_1['assignedRepositoryIds'][0],
+            asset_2['assignedRepositoryIds'][0]
+        )
+        self.assertNotEqual(
+            asset_1['assetContents'][0]['genusTypeId'],
+            asset_2['assetContents'][0]['genusTypeId']
+        )
+
 
 class AssetCRUDTests(BaseRepositoryTestCase):
     def setUp(self):
@@ -802,6 +880,7 @@ class AssetCRUDTests(BaseRepositoryTestCase):
 
         self._video_upload_test_file = open('{0}/tests/files/video-js-test.mp4'.format(ABS_PATH), 'r')
         self._caption_upload_test_file = open('{0}/tests/files/video-js-test-en.vtt'.format(ABS_PATH), 'r')
+        self._image_2_test_file = open('{0}/tests/files/Picture2.png'.format(ABS_PATH), 'r')
 
     def tearDown(self):
         """
@@ -813,6 +892,25 @@ class AssetCRUDTests(BaseRepositoryTestCase):
 
         self._video_upload_test_file.close()
         self._caption_upload_test_file.close()
+        self._image_2_test_file.close()
+
+    def upload_asset_with_provider(self):
+        self._video_upload_test_file.seek(0)
+        self._provider = "Doe, John. Images from the sky. Nature Magazine, vol 1 iss 10. pp 1-10, 2016"
+        req = self.app.post(self.url,
+                            params={"provider": self._provider},
+                            upload_files=[('inputFile', 'video-js-test.mp4', self._video_upload_test_file.read())])
+        self.ok(req)
+        return self.json(req)
+
+    def upload_asset_with_source(self):
+        self._video_upload_test_file.seek(0)
+        self._source = "John Doe, (c) 2016"
+        req = self.app.post(self.url,
+                            params={"source": self._source},
+                            upload_files=[('inputFile', 'video-js-test.mp4', self._video_upload_test_file.read())])
+        self.ok(req)
+        return self.json(req)
 
     def test_can_upload_video_files_to_repository(self):
         self._video_upload_test_file.seek(0)
@@ -1132,3 +1230,197 @@ class AssetCRUDTests(BaseRepositoryTestCase):
             asset_content.get_url(),
             data['assetContents'][0]['url']
         )
+
+    def test_can_replace_main_media_element_in_asset(self):
+        # using the convenience method
+        self._video_upload_test_file.seek(0)
+        req = self.app.post(self.url,
+                            upload_files=[('inputFile', 'video-js-test.mp4', self._video_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+
+        url = '{0}/{1}'.format(self.url, data['id'])
+        self._image_2_test_file.seek(0)
+        req = self.app.put(url,
+                           upload_files=[('inputFile',
+                                          self._filename(self._image_2_test_file),
+                                          self._image_2_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+        self.assertEqual(len(data['assetContents']), 1)
+        image_url = data['assetContents'][0]['url']
+        req = self.app.get(image_url)
+        self.code(req, 206)
+        self._image_2_test_file.seek(0)
+        self.assertEqual(req.body,
+                         self._image_2_test_file.read())
+
+    def test_can_set_asset_source(self):
+        data = self.upload_asset_with_source()
+        self.assertIn('source', data)
+        self.assertEqual(
+            data['source']['text'],
+            self._source
+        )
+
+    def test_can_update_asset_source(self):
+        self._video_upload_test_file.seek(0)
+        source = "John Doe, (c) 2016"
+        req = self.app.post(self.url,
+                            upload_files=[('inputFile', 'video-js-test.mp4', self._video_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+        self.assertNotIn('source', data)
+        self.assertEqual(data['sourceId'], '')
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+        payload = {
+            'source': source
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+        data = self.json(req)
+        self.assertIn('source', data)
+        self.assertEqual(
+            data['source']['text'],
+            source
+        )
+
+    def test_can_change_asset_source(self):
+        data = self.upload_asset_with_source()
+        self.assertIn('source', data)
+        self.assertEqual(
+            data['source']['text'],
+            self._source
+        )
+        resource_id_1 = data['sourceId']
+
+        source_2 = 'foobar, (c) 1900'
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+        payload = {
+            'source': source_2
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+        data = self.json(req)
+        self.assertIn('source', data)
+        self.assertEqual(
+            data['source']['text'],
+            source_2
+        )
+
+        self.assertNotEqual(resource_id_1,
+                            data['sourceId'])
+
+    def test_asset_source_returns_as_resource_name_on_get_details(self):
+        data = self.upload_asset_with_source()
+        original_source_id = data['sourceId']
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+        self.assertIn('source', data)
+        self.assertEqual(data['sourceId'], original_source_id)
+        self.assertEqual(data['source']['text'], self._source)
+
+    def test_asset_source_returns_as_resource_name_on_get_list(self):
+        data = self.upload_asset_with_source()
+        original_source_id = data['sourceId']
+        req = self.app.get(self.url)
+        self.ok(req)
+        data = self.json(req)
+        self.assertEqual(len(data), 1)
+        self.assertIn('source', data[0])
+        self.assertEqual(data[0]['sourceId'], original_source_id)
+        self.assertEqual(data[0]['source']['text'], self._source)
+
+    def test_can_set_asset_provider(self):
+        data = self.upload_asset_with_provider()
+        self.assertIn('provider', data)
+        self.assertEqual(
+            data['provider']['text'],
+            self._provider
+        )
+
+    def test_can_update_asset_provider(self):
+        self._video_upload_test_file.seek(0)
+        provider = "Doe, John. Images from the sky. Nature Magazine, vol 1 iss 10. pp 1-10, 2016"
+        req = self.app.post(self.url,
+                            upload_files=[('inputFile', 'video-js-test.mp4', self._video_upload_test_file.read())])
+        self.ok(req)
+        data = self.json(req)
+        self.assertNotIn('provider', data)
+        self.assertEqual(data['providerId'], '')
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+        payload = {
+            'provider': provider
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+        data = self.json(req)
+        self.assertIn('provider', data)
+        self.assertEqual(
+            data['provider']['text'],
+            provider
+        )
+
+    def test_can_change_asset_provider(self):
+        data = self.upload_asset_with_provider()
+        self.assertIn('provider', data)
+        self.assertEqual(
+            data['provider']['text'],
+            self._provider
+        )
+        resource_id_1 = data['providerId']
+
+        provider_2 = 'foobar, (c) 1900'
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+        payload = {
+            'provider': provider_2
+        }
+        req = self.app.put(url,
+                           params=json.dumps(payload),
+                           headers={'content-type': 'application/json'})
+        self.ok(req)
+        data = self.json(req)
+        self.assertIn('provider', data)
+        self.assertEqual(
+            data['provider']['text'],
+            provider_2
+        )
+
+        self.assertNotEqual(resource_id_1,
+                            data['providerId'])
+
+    def test_asset_provider_returns_as_resource_name_on_get_details(self):
+        data = self.upload_asset_with_provider()
+        original_provider_id = data['providerId']
+        url = '{0}/{1}'.format(self.url,
+                               data['id'])
+        req = self.app.get(url)
+        self.ok(req)
+        data = self.json(req)
+        self.assertIn('provider', data)
+        self.assertEqual(data['providerId'], original_provider_id)
+        self.assertEqual(data['provider']['text'], self._provider)
+
+    def test_asset_provider_returns_as_resource_name_on_get_list(self):
+        data = self.upload_asset_with_provider()
+        original_provider_id = data['providerId']
+        req = self.app.get(self.url)
+        self.ok(req)
+        data = self.json(req)
+        self.assertEqual(len(data), 1)
+        self.assertIn('provider', data[0])
+        self.assertEqual(data[0]['providerId'], original_provider_id)
+        self.assertEqual(data[0]['provider']['text'], self._provider)

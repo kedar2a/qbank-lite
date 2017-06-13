@@ -1,3 +1,4 @@
+import envoy
 import json
 import os
 import re
@@ -7,14 +8,21 @@ from unittest import TestCase
 from bs4 import Tag, BeautifulSoup
 from paste.fixture import TestApp
 
-import dlkit_runtime.configs
-from authorization_utilities import create_function_id, create_qualifier_id, create_agent_id
-from dlkit_runtime import PROXY_SESSION, RUNTIME
-from dlkit_runtime.primordium import Type
-from dlkit_runtime.proxy_example import TestRequest
-from dlkit_runtime.utilities import impl_key_dict
+from authorization.authorization_utilities import create_function_id, create_qualifier_id, create_agent_id
+
+# Note that changing the runtime configs works with testing, but
+# trying to change dlkit_configs.configs does not...
+import dlkit.runtime.configs
+from dlkit.runtime import PROXY_SESSION, RUNTIME
+from dlkit.runtime.primordium import Type
+from dlkit.runtime.proxy_example import SimpleRequest
+from dlkit.runtime.utilities import impl_key_dict
+from dlkit.records.registry import LOG_ENTRY_RECORD_TYPES
+
+from urllib import unquote
+
 from main import app
-from records.registry import LOG_ENTRY_RECORD_TYPES
+
 
 # PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
 # ABS_PATH = os.path.abspath(os.path.join(PROJECT_PATH, os.pardir))
@@ -212,7 +220,7 @@ SUBPACKAGES = (
 
 
 def configure_dlkit():
-    dlkit_runtime.configs.SERVICE = {
+    dlkit.runtime.configs.SERVICE = {
         'id': 'dlkit_runtime_bootstrap_configuration',
         'displayName': 'DLKit Runtime Bootstrap Configuration',
         'description': 'Bootstrap Configuration for DLKit Runtime',
@@ -257,6 +265,14 @@ def configure_dlkit():
                 'syntax': 'STRING',
                 'displayName': 'Hierarchy Provider Implementation',
                 'description': 'Implementation for hierarchy service provider',
+                'values': [
+                    {'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
+                ]
+            },
+            'resourceProviderImpl': {
+                'syntax': 'STRING',
+                'displayName': 'Resource Provider Implementation',
+                'description': 'Implementation for resource service provider',
                 'values': [
                     {'value': 'TEST_AUTHZ_ADAPTER_1', 'priority': 1}
                 ]
@@ -350,7 +366,7 @@ def create_new_bank():
 
 
 def create_test_repository():
-    # from authorization_utilities import get_vault
+    from authorization.authorization_utilities import get_vault
     rm = get_managers()['rm']
     form = rm.get_repository_form_for_create([])
     form.display_name = 'a repository'
@@ -362,10 +378,10 @@ def create_test_repository():
     # set_trace()
     # create_super_authz_authorizations(get_vault())
     #
-    # create_user_authorizations(get_vault(),
-    #                            username="clix-authz@tiss.edu",
-    #                            new_catalogs=[new_repo.ident.identifier])
-    # create_user_authorizations(get_vault(), new_catalogs=[new_repo.ident.identifier])
+    create_user_authorizations(get_vault(),
+                               username="student@tiss.edu",
+                               new_catalogs=[new_repo.ident.identifier])
+    create_user_authorizations(get_vault(), new_catalogs=[new_repo.ident.identifier])
 
     return new_repo
 
@@ -388,8 +404,13 @@ def get_fixture_repository():
 
 
 def get_super_authz_user_request():
-    import settings
-    return get_managers(username=settings.AUTHZ_USER)
+    try:
+        import settings
+    except ImportError:
+        authz_user = os.environ.get('AUTHZ_USER')
+    else:
+        authz_user = settings.AUTHZ_USER
+    return get_managers(username=authz_user)
 
 
 def get_managers(username='student@tiss.edu'):
@@ -402,7 +423,7 @@ def get_managers(username='student@tiss.edu'):
         nickname = manager[0]
         service_name = manager[1]
         condition = PROXY_SESSION.get_proxy_condition()
-        dummy_request = TestRequest(username=username, authenticated=True)
+        dummy_request = SimpleRequest(username=username, authenticated=True)
         condition.set_http_request(dummy_request)
         proxy = PROXY_SESSION.get_proxy(condition)
         results[nickname] = RUNTIME.get_service_manager(service_name,
@@ -437,6 +458,10 @@ class BaseTestCase(TestCase):
     def _filename(file_object):
         return file_object.name.split('/')[-1]
 
+    @staticmethod
+    def _label(text):
+        return text.replace('.', '_')
+
     def code(self, _req, _code):
         self.assertEqual(_req.status, _code)
 
@@ -466,6 +491,17 @@ class BaseTestCase(TestCase):
         middleware = []
         self.app = TestApp(app.wsgifunc(*middleware))
 
+        envoy.run('mongo test_qbank_lite_assessment --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_assessment_authoring --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_hierarchy --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_authorization --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_id --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_logging --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_relationship --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_repository --eval "db.dropDatabase()"')
+
+        envoy.run('mongorestore --db test_qbank_lite_authorization --drop tests/fixtures/test_qbank_lite_authorization')
+        envoy.run('mongorestore --db test_qbank_lite_repository --drop tests/fixtures/test_qbank_lite_repository')
         if os.path.isdir(TEST_DATA_STORE_PATH):
             shutil.rmtree(TEST_DATA_STORE_PATH)
 
@@ -479,6 +515,8 @@ class BaseTestCase(TestCase):
         #                 '{0}/assessment'.format(TEST_DATA_STORE_PATH))
         shutil.copytree('{0}/repository'.format(TEST_FIXTURES_PATH),
                         '{0}/repository'.format(TEST_DATA_STORE_PATH))
+
+        self._bank = get_fixture_bank()
 
     def setup_entry(self, log_id, data):
         logm = get_managers()['logm']
@@ -494,3 +532,22 @@ class BaseTestCase(TestCase):
 
     def tearDown(self):
         shutil.rmtree(TEST_DATA_STORE_PATH)
+        envoy.run('mongo test_qbank_lite_assessment --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_assessment_authoring --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_hierarchy --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_authorization --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_id --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_logging --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_relationship --eval "db.dropDatabase()"')
+        envoy.run('mongo test_qbank_lite_repository --eval "db.dropDatabase()"')
+
+    def upload_media_file(self, file_handle):
+        url = '/api/v1/repository/repositories/{0}/assets'.format(unquote(str(self._bank.ident)))
+        file_handle.seek(0)
+        req = self.app.post(url,
+                            upload_files=[('inputFile',
+                                           self._filename(file_handle),
+                                           file_handle.read())])
+        self.ok(req)
+        data = self.json(req)
+        return data
